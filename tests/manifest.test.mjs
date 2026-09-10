@@ -1,0 +1,45 @@
+import { readFileSync, existsSync } from 'node:fs';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const m = JSON.parse(readFileSync(join(ROOT, 'manifest.json'), 'utf8'));
+
+assert.equal(m.manifest_version, 3, '必须为 MV3');
+assert.ok(m.name && m.version, '需要 name/version');
+assert.ok(m.description, '需要 description');
+assert.equal(m.minimum_chrome_version, '126', '最低 Chrome 126');
+
+const REQUIRED_PERMS = ['debugger', 'activeTab', 'scripting', 'contextMenus', 'storage', 'downloads', 'clipboardWrite', 'alarms'];
+const ALLOWED_PERMS = new Set([...REQUIRED_PERMS, 'notifications', 'tabGroups']);
+for (const p of REQUIRED_PERMS) assert.ok(m.permissions.includes(p), `缺少权限 ${p}`);
+for (const p of m.permissions) assert.ok(ALLOWED_PERMS.has(p), `意外的权限 ${p}`);
+assert.deepEqual(m.host_permissions, ['<all_urls>'], 'host_permissions 应为 <all_urls>');
+
+assert.equal(m.background.service_worker, 'background/sw.js');
+assert.ok(m.action.default_popup.endsWith('popup/popup.html'));
+assert.ok(m.options_page.endsWith('options/options.html'));
+
+// 引用的文件必须存在
+const files = [
+  m.background.service_worker, m.action.default_popup, m.options_page,
+  ...m.content_scripts[0].js, ...m.content_scripts[0].css,
+  ...Object.values(m.icons)
+];
+for (const f of files) assert.ok(existsSync(join(ROOT, f)), `文件不存在: ${f}`);
+
+assert.equal(m.content_scripts[0].all_frames, false, '不注入 iframe(已知限制)');
+assert.deepEqual(m.content_scripts[0].js.slice(0, 2), ['common/messages.js', 'common/geom.js'], '协议常量必须最先注入');
+
+const CMDS = ['capture-full', 'capture-visible', 'capture-region', '_execute_action'];
+for (const c of CMDS) {
+  assert.ok(m.commands[c], `缺少命令 ${c}`);
+  assert.ok(m.commands[c].suggested_key.default, `命令 ${c} 缺少默认快捷键`);
+}
+assert.deepEqual(
+  Object.values(m.commands).map(c => c.suggested_key.default).filter(k => k !== 'Alt+Shift+P'),
+  ['Alt+Shift+F', 'Alt+Shift+V', 'Alt+Shift+S']
+);
+
+console.log('✔ manifest.test.mjs');
