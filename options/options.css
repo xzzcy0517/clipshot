@@ -1,0 +1,33 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  max-width: 680px; margin: 0 auto; padding: 24px 20px 48px;
+  font: 14px/1.7 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #1c2330;
+}
+@media (prefers-color-scheme: dark) {
+  body { color: #dde3ee; }
+  fieldset { border-color: #333a48; }
+  input, select, textarea, button { background: #232833; color: #dde3ee; border-color: #3a4150; }
+}
+h1 { font-size: 20px; }
+fieldset { border: 1px solid #d6dbe4; border-radius: 10px; margin: 0 0 18px; padding: 14px 16px; }
+legend { padding: 0 6px; font-weight: 600; }
+label { display: block; margin: 8px 0; }
+label.row { display: flex; align-items: center; gap: 8px; }
+input[type="number"] { width: 110px; padding: 4px 6px; border-radius: 6px; border: 1px solid #ccd2dd; margin-left: 8px; }
+input[type="range"] { width: 220px; vertical-align: middle; margin-left: 8px; }
+select { padding: 4px 8px; border-radius: 6px; border: 1px solid #ccd2dd; margin-left: 8px; }
+.kbd-table { border-collapse: collapse; }
+.kbd-table td { padding: 3px 16px 3px 0; }
+.kbd-table td:last-child { font-family: ui-monospace, monospace; }
+.mini { font-size: 12px; opacity: .7; }
+.row-btns { display: flex; gap: 10px; margin: 10px 0; }
+button {
+  padding: 6px 14px; border-radius: 8px; border: 1px solid #ccd2dd; background: #fff; cursor: pointer;
+}
+button:disabled { opacity: .5; cursor: default; }
+textarea {
+  width: 100%; font: 12px/1.5 ui-monospace, monospace; padding: 8px;
+  border-radius: 8px; border: 1px solid #ccd2dd; resize: vertical;
+}

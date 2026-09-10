@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>ClipShot 设置</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <h1>ClipShot 设置</h1>
+
+  <fieldset>
+    <legend>输出</legend>
+    <label>图片格式
+      <select id="format">
+        <option value="png">PNG(无损,体积大)</option>
+        <option value="jpeg">JPEG(有损,体积小)</option>
+      </select>
+    </label>
+    <label>JPEG 质量(<span id="quality-val">85</span>)
+      <input type="range" id="jpegQuality" min="60" max="100" step="1">
+    </label>
+    <label class="row"><input type="checkbox" id="autoJpegForLong">页面超过一定长度时自动改用 JPEG(控制体积)</label>
+    <label>自动改 JPEG 的高度阈值(CSS px)<input type="number" id="autoJpegMinCssH" min="4000" max="30000" step="500"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>整页截图</legend>
+    <label class="row"><input type="checkbox" id="hideFixed">截图时隐藏固定元素(fixed / sticky)</label>
+    <label>滚动速度
+      <select id="scrollSpeed">
+        <option value="fast">快(每步 0.9 屏,适合轻量页)</option>
+        <option value="standard">标准(每步 0.75 屏)</option>
+        <option value="slow">慢(每步 0.6 屏,适合重懒加载页)</option>
+      </select>
+    </label>
+    <label>分段阈值:页面高度超过该值改用分段捕获(CSS px)<input type="number" id="splitThreshold" min="8000" max="24000" step="500"></label>
+    <label>每段高度(CSS px)<input type="number" id="chunkHeight" min="1000" max="8000" step="250"></label>
+    <label>最大滚动行程(CSS px,无限流保护)<input type="number" id="maxScrollPx" min="5000" max="100000" step="1000"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>快捷键</legend>
+    <table class="kbd-table">
+      <tr><td>整页长截图</td><td>Alt + Shift + F</td></tr>
+      <tr><td>可视区域截图</td><td>Alt + Shift + V</td></tr>
+      <tr><td>框选区域截图</td><td>Alt + Shift + S</td></tr>
+      <tr><td>打开面板</td><td>Alt + Shift + P</td></tr>
+    </table>
+    <div class="mini">如需改键:chrome://extensions/shortcuts。右键页面元素 → 「ClipShot:截取此元素」。</div>
+  </fieldset>
+
+  <fieldset>
+    <legend>诊断(校准坐标系用)</legend>
+    <div class="mini">对当前标签页临时建立调试会话,导出 <code>Page.getLayoutMetrics</code> 原始 JSON。
+      截图期间页面顶部会短暂出现调试提示条,属正常现象。遇到问题时把这段 JSON 反馈给开发者。</div>
+    <div class="row-btns">
+      <button id="btn-diag">导出当前页诊断信息</button>
+      <button id="btn-copy-diag" disabled>复制 JSON</button>
+    </div>
+    <textarea id="diag-out" rows="10" placeholder="诊断结果将显示在这里"></textarea>
+  </fieldset>
+
+  <div class="mini">设置自动保存。扩展版本 <span id="ver"></span></div>
+
+  <script src="../common/messages.js"></script>
+  <script src="../common/settings.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
