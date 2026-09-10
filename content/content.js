@@ -49,8 +49,38 @@
       ok: true, docW, docH,
       vw: window.innerWidth, vh: window.innerHeight,
       dpr: window.devicePixelRatio || 1,
-      scroller: sc.kind, scrollerPath: describe(sc.el)
+      scroller: sc.kind, scrollerPath: describe(sc.el),
+      // 内部滚动容器(飞书文档类 SPA)的真实内容尺寸:
+      // getLayoutMetrics 只能看到 document 高度(≈一屏),必须用容器 scrollHeight
+      scrollerW: sc.kind === 'internal' ? sc.el.clientWidth : null,
+      scrollerH: sc.kind === 'internal' ? sc.el.scrollHeight : null
     };
+  }
+
+  /**
+   * 渲染稳定门控:轮询 scrollHeight + DOM 节点数,连续两次采样不变即认为
+   * 虚拟列表(飞书/Notion 类)已完成当前窗口的渲染。视口仿真放大后、
+   * 每段滚动定位后都要等它,否则截到半渲染的空白块。
+   */
+  async function renderStable(timeoutMs) {
+    const t0 = Date.now();
+    const timeout = Math.min(Math.max(timeoutMs || 3000, 500), 8000);
+    let lastH = -1, lastN = -1, streak = 0;
+    for (;;) {
+      const sc = findScroller();
+      const h = sc.el.scrollHeight;
+      const n = document.getElementsByTagName('*').length;
+      if (h === lastH && n === lastN) {
+        if (++streak >= 2) return { ok: true, stable: true, docH: h, nodes: n, clientH: sc.el.clientHeight, waitedMs: Date.now() - t0 };
+      } else {
+        streak = 0;
+      }
+      lastH = h; lastN = n;
+      if (Date.now() - t0 > timeout) {
+        return { ok: true, stable: false, docH: lastH, nodes: lastN, clientH: sc.el.clientHeight, waitedMs: Date.now() - t0 };
+      }
+      await sleep(200);
+    }
   }
 
   /* --------------------------------------------------- fixed/sticky 隐藏 */
@@ -232,12 +262,44 @@
     if (!el || !el.isConnected) return { ok: false, error: ERR.ELEMENT_GONE };
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return { ok: false, error: ERR.ELEMENT_GONE };
-    // 视口 → 文档坐标换算只发生在这里(坐标系纪律)
+    // 视口 → 文档坐标换算只发生在这里(坐标系纪律)。
+    // 内部滚动容器页面(飞书文档类)window 不滚动,坐标必须换算到
+    // 「活动滚动容器的内容空间」,与 SCROLL_TO 的坐标系保持一致。
+    const sc = findScroller();
+    let rectDoc;
+    if (sc.kind === 'internal') {
+      const cr = sc.el.getBoundingClientRect();
+      rectDoc = {
+        x: r.x - cr.left + sc.el.scrollLeft,
+        y: r.y - cr.top + sc.el.scrollTop,
+        width: r.width, height: r.height
+      };
+    } else {
+      rectDoc = { x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height };
+    }
     return {
       ok: true,
-      rectDoc: { x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height },
+      rectDoc,
       rectVp: { x: r.x, y: r.y, width: r.width, height: r.height }, // 视口坐标,用于「元素已在视口内」的零横幅判断
       tag: describe(el)
+    };
+  }
+
+  /** 把右键记录的元素原生滚入视野,返回新鲜视口 rect(嵌套滚动容器由浏览器处理) */
+  async function scrollIntoViewPick() {
+    if (!pickRecord || Date.now() - pickRecord.at > 30000) return { ok: false, error: ERR.ELEMENT_GONE };
+    const el = pickRecord.el;
+    if (!el || !el.isConnected) return { ok: false, error: ERR.ELEMENT_GONE };
+    const sc = findScroller();
+    const prevY = sc.el.scrollTop;
+    el.scrollIntoView({ block: 'start', inline: 'nearest' });
+    await sleep(200);
+    const r = el.getBoundingClientRect();
+    return {
+      ok: true, prevY,
+      rectVp: { x: r.x, y: r.y, width: r.width, height: r.height },
+      fits: r.x >= -1 && r.y >= -1 &&
+        r.width <= window.innerWidth - 2 && r.height <= window.innerHeight - 2
     };
   }
 
@@ -348,6 +410,8 @@
       case MSG.SCROLL_START: return startScroll(m.cfg);
       case MSG.SCROLL_STOP: return stopScroll(m.reason);
       case MSG.SCROLL_TO: return scrollTo(m.y);
+      case MSG.SCROLL_INTO_VIEW: return scrollIntoViewPick();
+      case MSG.RENDER_STABLE: return renderStable(m.timeoutMs);
       case MSG.HIDE_FIXED: return hideFixed();
       case MSG.RESTORE_FIXED: return restoreFixed();
       case MSG.PICK_GET: return pickGet(m.maxAgeMs);

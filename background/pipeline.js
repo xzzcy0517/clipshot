@@ -280,15 +280,28 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       job.css = css;
       if (css.cssW > 6000) throw mkErr(ERR.PAGE_TOO_LARGE); // 横向溢出不做二维分段
 
+      // 重新取滚动后的页面度量(飞书文档类虚拟滚动 SPA 的高度在滚动中动态变化;
+      // 内部滚动容器页 document 高度只有约一屏,真实高度在容器 scrollHeight 里)
+      const m2 = await sendToTab(job.tabId, { type: MSG.METRICS }, 4000).catch(() => null);
+      const isInternal = !!(m2 && m2.scroller === 'internal' && m2.scrollerH > 0);
+      // 仿真宽度用 innerWidth:与当前布局宽度一致,避免滚动条消失/出现引发
+      // 文本重排——重排正是分段拼接缝错位的根源之一
+      const capW = Math.max(1, Math.round((m2 && m2.vw) || css.cssW));
+      const capH = Math.max(1, Math.round(isInternal ? m2.scrollerH : Math.max(css.cssH, (m2 && m2.docH) || 0)));
+
       // 超长页自动降体积:PNG 且超过阈值 → JPEG
       const notes = [];
-      if (s.autoJpegForLong && s.format === 'png' && css.cssH > s.autoJpegMinCssH) {
+      if (s.autoJpegForLong && s.format === 'png' && capH > s.autoJpegMinCssH) {
         s.format = 'jpeg';
-        notes.push(`页面较长(${Math.round(css.cssH)}px),已自动改用 JPEG 以控制体积`);
+        notes.push(`页面较长(${Math.round(capH)}px),已自动改用 JPEG 以控制体积`);
       }
       if (scrollInfo.infinite) notes.push('检测到无限滚动,仅包含已加载部分');
-      if (scrollInfo.scroller === 'internal') notes.push('检测到 SPA 内部滚动容器,已按该容器滚动');
+      if (isInternal) notes.push('检测到内部滚动容器(飞书/Notion 类文档),已按容器高度捕获');
+      else if (scrollInfo.scroller === 'internal') notes.push('检测到 SPA 内部滚动容器,已按该容器滚动');
       if (scrollInfo.stoppedBy === 'none') notes.push('未检测到可滚动内容,结果可能不完整');
+
+      // 滚动归零:仿真视口拍的是 [scrollTop, scrollTop+H],不归零会缺头部
+      try { await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: 0 }, 4000); } catch (e) { /* noop */ }
 
       phase(job, 'capture', 70);
       abortCheck(job);
@@ -300,24 +313,41 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       //    DevTools「Capture full size screenshot」同款机制),再拍普通视口截图。
       //    v0.1.x 实测教训:captureBeyondViewport(无论有无 clip)在该内核上
       //    只渲染第一屏、其余留白且尺寸正确(比例对账都防不住),彻底放弃依赖它。
-      if (css.cssW * dpr * css.cssH * dpr <= AREA_CAP) {
+      if (capW * dpr * capH * dpr <= AREA_CAP) {
         try {
+          let emuH = capH;
           await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
-            width: Math.round(css.cssW), height: Math.round(css.cssH),
-            deviceScaleFactor: dpr, mobile: false
+            width: capW, height: emuH, deviceScaleFactor: dpr, mobile: false
           }, 5000);
           await CS.util.sleep(250);
-          // 视口放大本身会触发一批 IntersectionObserver 懒加载,等它落地
+          // 视口放大会触发一批 IntersectionObserver 懒加载 + 虚拟列表全量重渲染,
+          // 双等待:网络空闲 + DOM/渲染稳定(后者是飞书文档类页面的关键)
           await CS.network.waitForIdle(job.tabId, 500, 3000);
+          let rs = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 4000 }, 8000).catch(() => null);
+          // 固定高度容器(聊天面板类)不随视口拉伸,仿真无效 → 明确报错而非静默出残图
+          if (isInternal && rs && rs.clientH > 0 && rs.clientH < emuH * 0.9) {
+            throw mkErr(ERR.FIXED_CONTAINER);
+          }
+          // 放大后重排可能让内容更高(占位块换真实内容):再放大一次并重新等稳定
+          if (rs && rs.docH > emuH + 4) {
+            emuH = Math.round(rs.docH);
+            await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
+              width: capW, height: emuH, deviceScaleFactor: dpr, mobile: false
+            }, 5000);
+            await CS.util.sleep(200);
+            rs = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 4000 }, 8000).catch(() => null);
+          }
           abortCheck(job);
           const b64 = await capturePageScreenshot(job.tabId, captureOpts(s), 60000);
-          if (CS.geom.aspectOk(sizeFromB64(b64), css.cssW, css.cssH)) {
+          const complete = !rs || rs.docH <= emuH + 4;
+          if (complete && CS.geom.aspectOk(sizeFromB64(b64), capW, emuH)) {
             segments = [{ b64 }];
+            if (rs && !rs.stable) notes.push('页面渲染未完全稳定,如有区块缺失请重试或在设置中调慢滚动速度');
           } else {
             notes.push('整幅捕获不完整(未覆盖整页),已改用分段捕获');
           }
         } catch (e) {
-          if (e.clipshotCode === ERR.USER_CANCELED_BANNER || job.abortCode) throw e;
+          if (e.clipshotCode === ERR.FIXED_CONTAINER || e.clipshotCode === ERR.USER_CANCELED_BANNER || job.abortCode) throw e;
           notes.push('整幅捕获失败,已改用分段捕获');
         } finally {
           await clearViewportEmulation(job.tabId);
@@ -327,7 +357,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       }
 
       // B) 兜底:clip + captureBeyondViewport(旧版 Chrome 的可靠写法)
-      if (!segments && css.cssH <= s.splitThreshold) {
+      if (!segments && !isInternal && css.cssH <= s.splitThreshold) {
         for (const scale of [1, 0.5]) {
           try {
             const b64 = await capturePageScreenshot(job.tabId, captureParams(s, {
@@ -345,8 +375,8 @@ globalThis.ClipShot = globalThis.ClipShot || {};
         if (!segments) notes.push('整幅捕获不完整,已改用分段捕获拼接');
       }
 
-      // C) 分段兜底:每段同样走「仿真视口=段高 + 滚动到段起点」+ 普通视口截图
-      if (!segments) segments = await runSegmented(job, css, notes, dpr);
+      // C) 分段兜底:自适应「仿真视口=段高 → 滚动定位 → 渲染稳定 → 视口截图」
+      if (!segments) segments = await runSegmented(job, capW, notes, dpr);
 
       await deliver(job, { mime: 'image/' + s.format, notes, segments });
     } catch (e) {
@@ -440,7 +470,15 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     try { await CS.cdp.call(tabId, 'Emulation.clearDeviceMetricsOverride', {}, 3000); } catch (e) { /* noop */ }
   }
 
-  async function runSegmented(job, css, notes, dpr) {
+  /**
+   * 自适应分段捕获(v0.2.1):
+   * - 每轮先重测内容总高(虚拟滚动页面在捕获中高度会变,一次性预切分会错缝);
+   * - 每段「先仿真视口=段高,再滚动定位」——反序会让 resize 重排把 scrollTop
+   *   钳制/漂移,带与带错位,正是拼接重复/缺行的主因;
+   * - 滚动后校验 applied 与目标一致,钳制(触底)时收缩段高防与前段重叠;
+   * - 每段截图前等渲染稳定(飞书文档类虚拟列表渲染新窗口需要时间)。
+   */
+  async function runSegmented(job, capW, notes, dpr) {
     const s = job.settings;
     notes.push('页面超出单幅上限,已自动分段捕获并拼接');
     // 分段模式强制隐藏固定元素,否则每段重复绘制 fixed/sticky
@@ -449,28 +487,38 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       await hideFixedRound(job);
     }
     phase(job, 'stitch', 70);
-    const ranges = CS.geom.splitRanges(css.cssH, s.chunkHeight);
-    const restoreY = Math.round(css.scrollY || 0);
     const segments = [];
-    let consecutiveFail = 0;
-    for (let i = 0; i < ranges.length; i++) {
+    let pos = 0, totalH = Infinity, iter = 0, consecutiveFail = 0;
+    while (iter++ < 200) {
       abortCheck(job);
-      const [a, b] = ranges[i];
-      const h = b - a;
-      let b64 = null;
-      // 每段:仿真视口高=段高 → 滚动到段起点 → 普通视口截图(不依赖 captureBeyondViewport)
+      const probe = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 2500 }, 6000).catch(() => null);
+      if (probe && probe.docH > 0) totalH = probe.docH;
+      if (!(pos < totalH - 2)) break;
+      let h = Math.min(s.chunkHeight, Math.ceil(totalH - pos));
+      let b64 = null, applied = pos;
       for (let attempt = 0; attempt < 2 && !b64; attempt++) {
         const k = attempt === 0 ? 1 : 0.5; // 重试降分辨率
         try {
-          await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: a }, 4000);
           await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
-            width: Math.round(css.cssW), height: Math.max(1, Math.round(h * k)),
+            width: capW, height: Math.max(1, Math.round(h * k)),
             deviceScaleFactor: dpr * k, mobile: false
           }, 5000);
+          const st = await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: pos }, 4000);
+          applied = st && typeof st.applied === 'number' ? st.applied : pos;
+          // 触底钳制保护:实际可滚位置不足时,把段高收缩到剩余内容,防与前段重叠
+          if (totalH !== Infinity && applied + h > totalH + 2) {
+            h = Math.max(1, Math.ceil(totalH - applied));
+            await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
+              width: capW, height: Math.max(1, Math.round(h * k)),
+              deviceScaleFactor: dpr * k, mobile: false
+            }, 5000);
+          }
           await CS.util.sleep(120);
           await CS.network.waitForIdle(job.tabId, 250, 1500);
+          // 等虚拟列表把本段窗口渲染完(占位块 → 真实内容)
+          await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 2500 }, 6000).catch(() => {});
           const cand = await capturePageScreenshot(job.tabId, captureOpts(s), 30000);
-          if (CS.geom.aspectOk(sizeFromB64(cand), css.cssW, h, 0.06)) b64 = cand;
+          if (CS.geom.aspectOk(sizeFromB64(cand), capW, h, 0.08)) b64 = cand;
         } catch (e) {
           if (e.clipshotCode === ERR.USER_CANCELED_BANNER || job.abortCode) throw e;
         } finally {
@@ -481,17 +529,19 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       if (!b64) {
         consecutiveFail++;
         if (consecutiveFail >= 2) throw mkErr(ERR.CAPTURE_TIMEOUT);
+        pos = applied + h; // 失败也推进,避免死循环
         continue;
       }
       consecutiveFail = 0;
       segments.push({ b64 });
-      phase(job, 'stitch', 70 + Math.round((i + 1) / ranges.length * 25));
+      pos = applied + h; // 以实际滚动位置推进,吸收钳制/重排漂移
+      phase(job, 'stitch', totalH === Infinity ? 80 : 70 + Math.min(25, Math.round((pos / totalH) * 25)));
     }
     if (segments.length === 0) throw mkErr(ERR.CAPTURE_TIMEOUT);
     // 总内存保护
     const total = segments.reduce((n, x) => n + x.b64.length, 0);
     if (total > 200 * 1024 * 1024) throw mkErr(ERR.MEMORY_LIMIT);
-    try { await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: restoreY }, 4000); } catch (e) { /* noop */ }
+    try { await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: 0 }, 4000); } catch (e) { /* noop */ }
     return segments;
   }
 
@@ -588,6 +638,27 @@ globalThis.ClipShot = globalThis.ClipShot || {};
 
   /* ---------------------------------------------------------- element 模式 */
 
+  /** 可视区捕获 + 按 CSS px 矩形裁剪;按设置可选隐藏固定元素(截完恢复)。
+      隐藏 fixed/sticky 不改变文档流,已测得的 rect 仍然有效。 */
+  async function shootVisibleRect(job, tab, s, dpr, rectCss) {
+    let hid = false;
+    try {
+      if (s.hideFixed) {
+        const r = await sendToTab(job.tabId, { type: MSG.HIDE_FIXED }, 8000).catch(() => null);
+        hid = !!(r && r.ok);
+        if (hid) await CS.util.sleep(80);
+      }
+      const dataUrl = await CS.cdp.withTimeout(
+        chrome.tabs.captureVisibleTab(tab.windowId, captureOpts(s)), 15000, ERR.CAPTURE_TIMEOUT
+      );
+      return await cropDataUrl(dataUrl, rectCss, dpr, s);
+    } finally {
+      if (hid) {
+        try { await sendToTab(job.tabId, { type: MSG.RESTORE_FIXED }, 3000); } catch (e) { /* noop */ }
+      }
+    }
+  }
+
   async function runElement(job) {
     const tab = await chrome.tabs.get(job.tabId);
     assertUsable(tab);
@@ -604,28 +675,48 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     const s = job.settings;
     const m = await sendToTab(job.tabId, { type: MSG.METRICS }, 4000).catch(() => null);
     const dpr = Math.max(1, Math.min(3, (m && m.dpr) || 1));
-    const rv = pick.rectVp;
 
     // 1) 元素完整落在当前视口内 → captureVisibleTab + 裁剪,零横幅零调试会话
+    const rv = pick.rectVp;
     if (m && rv && rv.x >= -1 && rv.y >= -1 &&
         rv.x + rv.width <= m.vw + 1 && rv.y + rv.height <= m.vh + 1) {
       phase(job, 'capture', 50);
-      const dataUrl = await CS.cdp.withTimeout(
-        chrome.tabs.captureVisibleTab(tab.windowId, captureOpts(s)), 15000, ERR.CAPTURE_TIMEOUT
-      );
-      const b64 = await cropDataUrl(dataUrl,
-        { x: Math.max(0, rv.x), y: Math.max(0, rv.y), w: rv.width, h: rv.height }, dpr, s);
+      const b64 = await shootVisibleRect(job, tab, s, dpr,
+        { x: Math.max(0, rv.x), y: Math.max(0, rv.y), w: rv.width, h: rv.height });
       await deliver(job, { mime: 'image/' + s.format, notes: [], segments: [{ b64 }] });
       return;
     }
 
-    // 2) 超出视口(或视口信息不可得):调试会话 + 仿真视口缩到元素尺寸条带
-    phase(job, 'attach', 40);
+    // 2) 元素在视口外:原生 scrollIntoView 滚到元素,再走可视区捕获(仍零横幅;
+    //    且对内部滚动容器页面天然正确——不依赖任何文档坐标换算)
+    phase(job, 'capture', 40);
+    const siv = await sendToTab(job.tabId, { type: MSG.SCROLL_INTO_VIEW }, 5000).catch(() => null);
+    if (siv && siv.ok && siv.fits && siv.rectVp) {
+      try {
+        const b64 = await shootVisibleRect(job, tab, s, dpr,
+          { x: Math.max(0, siv.rectVp.x), y: Math.max(0, siv.rectVp.y), w: siv.rectVp.width, h: siv.rectVp.height });
+        await deliver(job, { mime: 'image/' + s.format, notes: [], segments: [{ b64 }] });
+        return;
+      } finally {
+        if (typeof siv.prevY === 'number') {
+          sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: siv.prevY }, 3000).catch(() => {});
+        }
+      }
+    }
+
+    // 3) 超高元素(放不进一屏):调试会话 + 仿真视口缩到元素尺寸条带
+    phase(job, 'attach', 55);
     const notes = [];
     const b64 = await withDebuggerSession(job, async () => {
       const raw = await CS.cdp.call(job.tabId, 'Page.getLayoutMetrics', {}, 5000);
       const css = CS.geom.normalizeMetrics(raw);
-      const rect = CS.geom.clampClip(pick.rectDoc, css.cssW, css.cssH);
+      // rectDoc 在活动滚动容器坐标系:内部容器页面(飞书类)document 高度只有一屏,
+      // 钳制边界必须用容器内容高度,否则 y 会被错误截断
+      const boundW = Math.max(1, Math.round((m && m.vw) || css.cssW));
+      const boundH = Math.max(1, Math.round(
+        (m && m.scroller === 'internal' && m.scrollerH > 0) ? m.scrollerH : Math.max(css.cssH, (m && m.docH) || 0)
+      ));
+      const rect = CS.geom.clampClip(pick.rectDoc, boundW, boundH);
       if (rect.width < 4 || rect.height < 4) throw mkErr(ERR.ELEMENT_GONE);
       abortCheck(job);
       phase(job, 'capture', 70);
@@ -641,15 +732,23 @@ globalThis.ClipShot = globalThis.ClipShot || {};
         return b;
       }
       let prevY = 0;
+      // 仿真宽度取测量 rect 时的视口宽,保证布局不重排(rect 与像素一一对应)
+      const bandW = Math.max(1, Math.round((m && m.vw) || css.cssW));
       try {
-        const st = await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: rect.y }, 4000);
-        if (st && st.ok && typeof st.prev === 'number') prevY = st.prev;
+        // 先仿真后滚动(反序会被 resize 重排钳制/漂移 scrollTop,同分段模式的教训)
         await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
-          width: Math.round(css.cssW), height: Math.round(rect.height),
+          width: bandW, height: Math.round(rect.height),
           deviceScaleFactor: dpr, mobile: false
         }, 5000);
+        const st = await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: rect.y }, 4000);
+        if (st && st.ok && typeof st.prev === 'number') prevY = st.prev;
         await CS.util.sleep(150);
         await CS.network.waitForIdle(job.tabId, 250, 1500);
+        const rs = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 2000 }, 5000).catch(() => null);
+        // 固定高度容器不随视口拉伸 → 条带截图必然残缺,明确报错
+        if (m && m.scroller === 'internal' && rs && rs.clientH > 0 && rs.clientH < rect.height * 0.9) {
+          throw mkErr(ERR.FIXED_CONTAINER);
+        }
         const band = await capturePageScreenshot(job.tabId, captureOpts(s), 15000);
         // 条带截图 = 整页宽 × 元素高,按元素 x 偏移裁出精确区域
         const dataUrl = 'data:image/' + (s.format === 'jpeg' ? 'jpeg' : 'png') + ';base64,' + band;

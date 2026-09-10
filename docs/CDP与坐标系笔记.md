@@ -49,6 +49,16 @@ dpr **不**取自 CDP:取 content 的 `window.devicePixelRatio`(即 surface 输�
   批量懒加载(capture 前 waitForIdle 等它落地)。
 - 仿真视口的面积纪律:单边/面积过大时 Chrome 拒绝或渲染空白,本项目限制
   cssW×dpr×H×dpr ≤ 60M 设备像素,超出走「分段仿真」(每段视口=chunk 高)。
+- **v0.2.1 虚拟滚动 SPA(飞书文档类)实测教训**:
+  - 仿真 resize 会触发重排,**先滚动后仿真**会让 scrollTop 被钳制/漂移,分段条带
+    错位——必须**先仿真、后滚动、再校验 applied**;
+  - 视口放大后虚拟列表异步渲染新窗口,固定 sleep 不够,要等「scrollHeight+DOM 节点数
+    连续两次采样不变」(`cs/render.stable`);
+  - 内部滚动容器页的 document 高度≈一屏,一切"内容总高"必须取容器 scrollHeight;
+    元素坐标也要换算到容器内容空间(`rect - containerRect + container.scroll`);
+  - 仿真宽度用 `window.innerWidth`(含滚动条的布局宽度),避免滚动条消失引发
+    全文重排——重排即错缝;
+  - 分段范围不能预切:动态页面高度在捕获过程中变化,要每轮重测、按 applied 推进。
 - 副作用:视口仿真期间页面按放大视口重排(如 100vh 元素会变高),fixed 元素会
   粘在巨大视口顶部——隐藏固定元素选项在此模式下尤为重要;结束必须
   `clearDeviceMetricsOverride`(runFull finally 有双保险)。

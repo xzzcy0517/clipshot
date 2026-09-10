@@ -9,7 +9,7 @@
  */
 globalThis.ClipShot = globalThis.ClipShot || {};
 (function (CS) {
-  CS.EXT_VER = '0.2.0';
+  CS.EXT_VER = '0.2.1';
 
   /** 一次性消息类型(request/response) */
   CS.MSG = {
@@ -25,13 +25,15 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     IMG_DONE: 'cs/image.done',      // {jobId} → {ok}
     // sw → content
     PING: 'cs/ping',                // {} → {ok,ver}
-    METRICS: 'cs/metrics',          // {} → {ok,docW,docH,vw,vh,dpr,scroller,scrollerPath}
+    METRICS: 'cs/metrics',          // {} → {ok,docW,docH,vw,vh,dpr,scroller,scrollerPath,scrollerW,scrollerH}
     SCROLL_START: 'cs/scroll.start',// {cfg} → {ok}(随后 content 建立 SCROLL_PORT)
     SCROLL_STOP: 'cs/scroll.stop',  // {reason} → {ok}
     SCROLL_TO: 'cs/scroll.to',      // {y 文档CSS px} → {ok,prev,applied}(分段/元素捕获定位)
+    RENDER_STABLE: 'cs/render.stable',// {timeoutMs} → {ok,stable,docH,nodes,clientH,waitedMs}(虚拟列表渲染稳定门控)
+    SCROLL_INTO_VIEW: 'cs/scroll.intoView',// {} → {ok,prevY,rectVp,fits}(右键元素滚入视野,内部容器页天然正确)
     HIDE_FIXED: 'cs/hideFixed',     // {} → {ok,fixedCount,stickyCount}
     RESTORE_FIXED: 'cs/restoreFixed',// {} → {ok,restored}
-    PICK_GET: 'cs/pick.get',        // {maxAgeMs} → {ok,rectDoc,rectVp,tag} | {ok:false,error}
+    PICK_GET: 'cs/pick.get',        // {maxAgeMs} → {ok,rectDoc(活动滚动容器坐标系),rectVp,tag} | {ok:false,error}
     MARQUEE_BEGIN: 'cs/marquee.begin',// {} → {ok}
     MARQUEE_CLEAR: 'cs/marquee.clear',// {} → {ok}
     // content → sw
@@ -60,6 +62,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     CAPTURE_TIMEOUT: 'CAPTURE_TIMEOUT',
     PAGE_TOO_LARGE: 'PAGE_TOO_LARGE',
     MEMORY_LIMIT: 'MEMORY_LIMIT',
+    FIXED_CONTAINER: 'FIXED_CONTAINER',
     SCROLL_FAILED: 'SCROLL_FAILED',
     STALE_JOB: 'STALE_JOB',
     UNKNOWN: 'UNKNOWN'
@@ -78,6 +81,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     CAPTURE_TIMEOUT: '截图超时,页面可能过大或过重,建议改用可视区域截图',
     PAGE_TOO_LARGE: '页面超出可捕获范围,建议分段或降低分辨率',
     MEMORY_LIMIT: '截图数据过大,超出内存限制,请在设置中改用 JPEG 或降低阈值',
+    FIXED_CONTAINER: '该页面的滚动容器高度是 CSS 固定的(不随视口变化),无法整页捕获;请改用框选或元素截图',
     SCROLL_FAILED: '页面在滚动过程中发生变化(如刷新),请重试',
     STALE_JOB: '该截图缓存已过期,请重新截取',
     UNKNOWN: '发生未知错误,请查看控制台'
