@@ -247,7 +247,6 @@ globalThis.ClipShot = globalThis.ClipShot || {};
 
     phase(job, 'metrics', 8);
     abortCheck(job);
-    const cm = await sendToTab(job.tabId, { type: MSG.METRICS }, 4000);
 
     phase(job, 'attach', 10);
     // 尽早 attach:活跃的 debugger 会话让 SW 保活(Chrome 116+),滚动阶段叠加 port 心跳
@@ -292,39 +291,45 @@ globalThis.ClipShot = globalThis.ClipShot || {};
 
       phase(job, 'capture', 70);
       abortCheck(job);
-      const expectedW = Math.round(css.cssW * (cm.dpr || 1));
-      const expectedH = Math.round(css.cssH * (cm.dpr || 1));
 
+      // 整页捕获一律带显式 clip:新版 Chrome(切换 surface 捕获后)不带 clip 的
+      // captureBeyondViewport 会把视口外区域渲染成空白/截断。
+      // 完整性校验用宽高比对账(geom.aspectOk):截断必致比例失真,
+      // 且该结论与 Chrome 把 clip 按 CSS px 还是设备 px 解释无关。
+      const FULL_CLIP = { x: 0, y: 0, width: css.cssW, height: css.cssH };
       let segments = null;
-      // 1) 整幅一次捕获
+      // 1) 整幅一次捕获(scale:1)
       if (css.cssH <= s.splitThreshold) {
         try {
-          const b64 = await capturePageScreenshot(job.tabId, captureParams(s), 60000);
+          const b64 = await capturePageScreenshot(job.tabId, captureParams(s, {
+            clip: Object.assign({ scale: 1 }, FULL_CLIP)
+          }), 60000);
           abortCheck(job);
-          const sz = sizeFromB64(b64);
-          if (!sz || closeEnough(sz.width, expectedW) && closeEnough(sz.height, expectedH)) {
+          if (CS.geom.aspectOk(sizeFromB64(b64), css.cssW, css.cssH)) {
             segments = [{ b64 }];
           } else {
-            notes.push('整幅捕获尺寸与预期不符,已自动改用分段捕获');
+            notes.push('整幅捕获不完整(未覆盖整页),已自动改用分段捕获');
           }
         } catch (e) {
           if (e.clipshotCode === ERR.USER_CANCELED_BANNER || job.abortCode) throw e;
           notes.push('整幅捕获失败,已自动改用分段捕获');
         }
       }
-      // 2) 整幅降分辨率重试一次(高分屏/超长页省内存)
+      // 2) 整幅降分辨率重试一次(高分屏/超长页省内存),同样过比例对账
       if (!segments) {
         try {
           const b64 = await capturePageScreenshot(job.tabId, captureParams(s, {
-            clip: { x: 0, y: 0, width: css.cssW, height: css.cssH, scale: 0.5 }
+            clip: Object.assign({ scale: 0.5 }, FULL_CLIP)
           }), 60000);
-          const sz = sizeFromB64(b64);
-          if (sz && sz.width >= expectedW * 0.25 && sz.height >= expectedH * 0.25) {
+          if (CS.geom.aspectOk(sizeFromB64(b64), css.cssW, css.cssH)) {
             segments = [{ b64 }];
             notes.push('已按 1/2 分辨率捕获以适配页面尺寸');
+          } else {
+            notes.push('整幅捕获不完整,已改用分段捕获拼接');
           }
         } catch (e) {
           if (job.abortCode) throw e;
+          notes.push('整幅捕获失败,已改用分段捕获拼接');
         }
       }
       // 3) 分段兜底
@@ -344,8 +349,6 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       await CS.cdp.detach(job.tabId);
     }
   }
-
-  function closeEnough(a, b) { return Math.abs(a - b) <= Math.max(2, b * 0.02); }
 
   async function hideFixedRound(job) {
     try {
@@ -436,13 +439,15 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       let b64 = null;
       for (let attempt = 0; attempt < 2 && !b64; attempt++) {
         try {
-          b64 = await capturePageScreenshot(job.tabId, captureParams(s, {
+          const cand = await capturePageScreenshot(job.tabId, captureParams(s, {
             clip: { x: 0, y: a, width: css.cssW, height: b - a, scale: attempt === 0 ? 1 : 0.5 }
           }), 30000);
+          // 每段也要过比例对账,防截断段混入拼接
+          if (CS.geom.aspectOk(sizeFromB64(cand), css.cssW, b - a, 0.06)) b64 = cand;
         } catch (e) {
           if (e.clipshotCode === ERR.USER_CANCELED_BANNER || job.abortCode) throw e;
-          await CS.util.sleep(400);
         }
+        if (!b64) await CS.util.sleep(400);
       }
       if (!b64) {
         consecutiveFail++;
@@ -576,9 +581,13 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       if (rect.width < 4 || rect.height < 4) throw mkErr(ERR.ELEMENT_GONE);
       abortCheck(job);
       phase(job, 'capture', 70);
-      return capturePageScreenshot(job.tabId, captureParams(s, {
+      const b64 = await capturePageScreenshot(job.tabId, captureParams(s, {
         clip: { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
       }), 15000);
+      if (!CS.geom.aspectOk(sizeFromB64(b64), rect.width, rect.height, 0.1)) {
+        throw mkErr(ERR.CAPTURE_TIMEOUT); // 元素捕获被截断
+      }
+      return b64;
     });
     await deliver(job, { mime: 'image/' + s.format, notes: [], segments: [{ b64 }] });
   }

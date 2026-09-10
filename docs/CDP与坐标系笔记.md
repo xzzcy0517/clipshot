@@ -41,8 +41,15 @@ dpr **不**取自 CDP:取 content 的 `window.devicePixelRatio`(即 surface 输�
 
 ## 整页捕获行为要点
 
-- 不加 clip 时按当前文档 contentSize 全幅输出,**从文档原点开始**,与当前滚动位置无关;
-  回顶主要为消除 sticky 的视觉状态。
+- **v0.1.1 实测教训:整页捕获必须带显式 clip**(`clip:{x:0,y:0,width:cssW,height:cssH,scale:1}`
+  + `captureBeyondViewport:true`)。不带 clip 的写法在新版 Chrome 上会把视口外区域
+  渲染成空白/截断,且尺寸"看起来正常",绝对尺寸校验发现不了(v0.1.0 的长图缺失 bug 即此)。
+- **完整性校验用宽高比对账**:Chrome 渲染存在 ~16384px 量级的硬上限,超限截断的图
+  比例必失真;`geom.aspectOk` 利用「比例在 CSS px / 设备 px 两种解释下都守恒」这一点,
+  不依赖对 clip 单位语义的猜测。截断/空白类 bug 的兜底判定都走它。
+- clip 的 dpr 语义仍待真机标定(见上方待回填样本):若返回图宽 ≈ cssW(而非 cssW×dpr),
+  说明该版本 clip+scale:1 输出 CSS 分辨率——内容完整,仅分辨率降低。
+- 不加 clip 的旧语义(整文档输出)已不再使用;回顶主要为消除 sticky 的视觉状态。
 - fixed 元素在超视口捕获中会绘制在文档顶部一份(40256133 的副作用)→ 这是
   「隐藏固定元素」默认开启、分段模式强制开启的原因。
 - 尺寸上限:单幅约在 16000+ CSS px 高度级别出现失败/空白 → `splitThreshold` 默认 16000;

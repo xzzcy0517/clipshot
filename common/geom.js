@@ -63,6 +63,18 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     return null;
   };
 
+  /**
+   * 宽高比对账:捕获结果 sz 与请求区域 w×h(CSS px)的比例是否一致。
+   * 截断/超纹理上限的图必然比例失真,而该校验与 clip 按 CSS px 还是设备 px
+   * 解释无关(两种情况下比例都守恒),故用它替代绝对尺寸断言。
+   */
+  geom.aspectOk = function (sz, w, h, tol) {
+    if (!sz || !sz.width || !sz.height || w <= 0 || h <= 0) return false;
+    const want = h / w;
+    const got = sz.height / sz.width;
+    return Math.abs(got - want) <= Math.max(0.01, want * (tol != null ? tol : 0.04));
+  };
+
   /** 把一段 clip 矩形钳制到文档范围内;返回四舍五入后的整数值。 */
   geom.clampClip = function (rect, cssW, cssH) {
     let x = Math.max(0, Math.min(Math.round(rect.x || 0), Math.max(0, Math.round(cssW) - 1)));

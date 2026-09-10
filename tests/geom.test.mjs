@@ -48,6 +48,20 @@ assert.equal(sz.mime, 'image/jpeg');
 assert.equal(sz.width, 1); assert.equal(sz.height, 1);
 assert.equal(geom.parseImageSize(util.b64Decode('aGVsbG8td29ybGQtaGVyZS0thhhh')), null, '非图片返回 null');
 
+/* ---------------- aspectOk(捕获完整性对账) ---------------- */
+// 正常:设备分辨率与 CSS 分辨率都守恒
+assert.ok(geom.aspectOk({ width: 2560, height: 40000 }, 1280, 20000));
+assert.ok(geom.aspectOk({ width: 1280, height: 20000 }, 1280, 20000));
+// 截断(超纹理上限,如 16384)比例失真 → 拒绝
+assert.ok(!geom.aspectOk({ width: 1280, height: 16384 }, 1280, 50000), '截断图必须被拒');
+assert.ok(!geom.aspectOk({ width: 1280, height: 8192 }, 1280, 20000, 0.5), '半分辨率截断也要拒');
+// 小尺寸兜底容差至少 0.01
+assert.ok(geom.aspectOk({ width: 37, height: 52 }, 37, 52));
+// 空/非法输入
+assert.ok(!geom.aspectOk(null, 100, 100));
+assert.ok(!geom.aspectOk({ width: 0, height: 10 }, 100, 100));
+assert.ok(!geom.aspectOk({ width: 10, height: 10 }, 100, 0));
+
 /* ---------------- clampClip ---------------- */
 assert.deepEqual(geom.clampClip({ x: -5, y: 100, width: 10, height: 20 }, 100, 200), { x: 0, y: 100, width: 10, height: 20 });
 assert.deepEqual(geom.clampClip({ x: 95, y: 195, width: 20, height: 20 }, 100, 200), { x: 95, y: 195, width: 5, height: 5 });
