@@ -1,0 +1,8 @@
+/* ClipShot content 注入样式。
+   框选覆盖层与提示气泡的样式内联在 shadow DOM 里(content.js MQ_HTML),
+   此文件仅保留极少量全局兜底,避免污染宿主页面。 */
+
+html[data-clipshot-marquee],
+body[data-clipshot-marquee] {
+  /* 预留:框选期间如需全局光标/禁选样式在此扩展 */
+}

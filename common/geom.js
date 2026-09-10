@@ -1,0 +1,107 @@
+'use strict';
+/**
+ * 纯几何/图像函数(无 chrome API 依赖,可被 node 测试直接 eval)。
+ * 依赖 common/messages.js 先加载(挂到同一 ClipShot 命名空间)。
+ */
+globalThis.ClipShot = globalThis.ClipShot || {};
+(function (CS) {
+  const geom = {};
+
+  function num(v, d) {
+    return (typeof v === 'number' && isFinite(v)) ? v : (d || 0);
+  }
+
+  /**
+   * 归一化 CDP Page.getLayoutMetrics。
+   * 历史上字段多次变动(cssContentSize/contentSize、scale/pageScaleFactor、
+   * scrollX/pageX 等),这里做防御性读取;真机样本用 options 页「诊断」dump
+   * 后回填到 tests/geom.test.mjs,再按样本收紧,不凭文档猜测。
+   */
+  geom.normalizeMetrics = function (m) {
+    m = m || {};
+    const src = m.cssContentSize ? 'cssContentSize' : 'contentSize';
+    const css = m.cssContentSize || m.contentSize || {};
+    const cssW = Math.max(1, num(css.width, 1));
+    const cssH = Math.max(1, num(css.height, 1));
+    const vv = m.cssVisualViewport || m.visualViewport || {};
+    const psf = num(vv.scale != null ? vv.scale : vv.pageScaleFactor, 1) || 1;
+    const scrollX = num(vv.scrollX != null ? vv.scrollX : (vv.pageX != null ? vv.pageX : vv.pageScrollX), 0);
+    const scrollY = num(vv.scrollY != null ? vv.scrollY : (vv.pageY != null ? vv.pageY : vv.pageScrollY), 0);
+    return { cssW, cssH, psf, scrollX, scrollY, sizeSource: src };
+  };
+
+  /**
+   * 从图片字节解析真实像素尺寸。支持 PNG(SOI/IHDR)与 JPEG(SOF0/2)。
+   * 无法识别时返回 null。
+   */
+  geom.parseImageSize = function (bytes) {
+    if (!bytes || bytes.length < 24) return null;
+    // PNG: 89 50 4E 47 0D 0A 1A 0A, IHDR 宽高在大端 offset 16/20
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+      const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      return { width: dv.getUint32(16), height: dv.getUint32(20), mime: 'image/png' };
+    }
+    // JPEG: FF D8 后扫描段, SOF marker 0xFFC0..0xFFCF(除 C4/CC)、0xFFE0..0xFFEF 中 DHT/DAC 等跳过
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8) {
+      let i = 2;
+      while (i + 9 < bytes.length) {
+        if (bytes[i] !== 0xFF) { i++; continue; }
+        const marker = bytes[i + 1];
+        if (marker === 0xFF) { i++; continue; }
+        if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { i += 2; continue; }
+        const segLen = (bytes[i + 2] << 8) | bytes[i + 3];
+        const isSof = (marker >= 0xC0 && marker <= 0xCF) && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC;
+        if (isSof) {
+          const h = (bytes[i + 5] << 8) | bytes[i + 6];
+          const w = (bytes[i + 7] << 8) | bytes[i + 8];
+          return { width: w, height: h, mime: 'image/jpeg' };
+        }
+        i += 2 + segLen;
+      }
+      return null;
+    }
+    return null;
+  };
+
+  /** 把一段 clip 矩形钳制到文档范围内;返回四舍五入后的整数值。 */
+  geom.clampClip = function (rect, cssW, cssH) {
+    let x = Math.max(0, Math.min(Math.round(rect.x || 0), Math.max(0, Math.round(cssW) - 1)));
+    let y = Math.max(0, Math.min(Math.round(rect.y || 0), Math.max(0, Math.round(cssH) - 1)));
+    let w = Math.max(1, Math.min(Math.round(rect.width || 0), Math.round(cssW) - x));
+    let h = Math.max(1, Math.min(Math.round(rect.height || 0), Math.round(cssH) - y));
+    return { x, y, width: w, height: h };
+  };
+
+  /** 把 total 切成不超过 chunkSize 的连续区间 [start,end) 列表。 */
+  geom.splitRanges = function (total, chunkSize) {
+    const out = [];
+    const cs = Math.max(1, Math.floor(chunkSize));
+    const t = Math.max(0, Math.floor(total));
+    for (let s = 0; s < t; s += cs) {
+      out.push([s, Math.min(s + cs, t)]);
+    }
+    if (out.length === 0) out.push([0, t]);
+    return out;
+  };
+
+  /* ---------- 小工具(纯函数,Node 16+/浏览器均有 btoa/atob) ---------- */
+  const util = {};
+  util.b64Encode = function (u8) {
+    let bin = '';
+    const STEP = 0x8000;
+    for (let i = 0; i < u8.length; i += STEP) {
+      bin += String.fromCharCode.apply(null, u8.subarray(i, i + STEP));
+    }
+    return btoa(bin);
+  };
+  util.b64Decode = function (b64) {
+    const bin = atob(b64);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+  };
+  util.sleep = function (ms) { return new Promise(r => setTimeout(r, ms)); };
+
+  CS.geom = geom;
+  CS.util = util;
+})(globalThis.ClipShot);
