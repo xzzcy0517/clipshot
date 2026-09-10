@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClipShot 夹具:坐标系探针</title>
+<style>
+  body { margin: 0; font: 14px system-ui; }
+  header { position: fixed; top: 0; left: 0; right: 0; height: 40px; background: #d33; color: #fff; line-height: 40px; padding-left: 12px; z-index: 10; }
+  .probe { position: absolute; width: 100px; height: 100px; color: #fff; font-size: 11px; text-align: center; }
+  .grid { position: relative; height: 2400px; background:
+    repeating-linear-gradient(0deg, transparent 0 99px, #ddd 99px 100px),
+    repeating-linear-gradient(90deg, transparent 0 99px, #ddd 99px 100px); }
+</style>
+</head>
+<body>
+<header>固定红色顶栏(验证隐藏/重复)</header>
+<div class="grid">
+  <div class="probe" style="left:50px;  top:100px;  background:#06c">蓝 (50,100)</div>
+  <div class="probe" style="left:300px; top:900px;  background:#0a5">绿 (300,900)</div>
+  <div class="probe" style="left:60px;  top:1800px; background:#83c">紫 (60,1800)</div>
+  <div class="probe" style="left:700px; top:2250px; background:#e80">橙 (700,2250)</div>
+</div>
+<p style="position:absolute;top:2420px;left:12px">
+  验收:① 整页截图中各探针中心应落在标注坐标(允许 ±2px);② 开启隐藏固定元素后红色顶栏不出现;
+  ③ 关闭隐藏时顶栏只出现一份(文档顶部)。
+</p>
+</body>
+</html>

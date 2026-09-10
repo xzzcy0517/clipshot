@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClipShot 夹具:SPA 内部滚动容器</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; font: 14px system-ui; }
+  .app { height: 100vh; overflow-y: auto; }
+  .topbar { position: sticky; top: 0; height: 48px; background: #0a5; color: #fff; line-height: 48px; padding-left: 12px; }
+  .card { margin: 16px; padding: 60px 20px; background: #f4f6fa; border: 1px solid #dde; border-radius: 8px; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="topbar">SPA 内部滚动容器(document 本身不滚动)</div>
+  <div id="list"></div>
+</div>
+<script>
+  const list = document.getElementById('list');
+  for (let i = 0; i < 60; i++) {
+    const c = document.createElement('div');
+    c.className = 'card';
+    c.textContent = '卡片 ' + (i + 1) + ' —— 应检测到内部滚动容器并按其滚动,提示「检测到 SPA 内部滚动容器」';
+    list.appendChild(c);
+  }
+</script>
+</body>
+</html>

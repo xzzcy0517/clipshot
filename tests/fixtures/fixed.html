@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClipShot 夹具:固定与粘滞元素</title>
+<style>
+  body { margin: 0; font: 14px/1.8 system-ui; }
+  .fixed-header { position: fixed; top: 0; left: 0; right: 0; height: 50px; background: #2f6fe4; color: #fff; line-height: 50px; padding-left: 14px; z-index: 9; }
+  .fixed-chat { position: fixed; right: 16px; bottom: 16px; width: 180px; height: 90px; background: #ffd; border: 1px solid #cc9; border-radius: 8px; padding: 8px; z-index: 9; }
+  .layout { display: flex; max-width: 900px; margin: 0 auto; padding-top: 60px; }
+  aside { position: sticky; top: 60px; width: 180px; height: 200px; background: #eee; margin-right: 20px; padding: 8px; flex: none; }
+  main { flex: 1; }
+  p { background: #fafafa; border-bottom: 1px dashed #ddd; }
+</style>
+</head>
+<body>
+<div class="fixed-header">蓝色 fixed 顶栏</div>
+<div class="fixed-chat">fixed 客服悬浮窗(应被隐藏)</div>
+<div class="layout">
+  <aside>sticky 侧栏(滚动时会跟随,应被隐藏且不留空位错位)</aside>
+  <main id="m"></main>
+</div>
+<script>
+  const m = document.getElementById('m');
+  for (let i = 0; i < 80; i++) {
+    const p = document.createElement('p');
+    p.style.padding = '24px';
+    p.textContent = '正文第 ' + (i + 1) + ' 段。长图里不应出现重复的蓝条或黄色客服窗。';
+    m.appendChild(p);
+  }
+</script>
+</body>
+</html>

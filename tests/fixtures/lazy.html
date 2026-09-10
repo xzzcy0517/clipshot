@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClipShot 夹具:懒加载</title>
+<style>
+  body { margin: 0; font: 14px system-ui; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 40px 20px; border-bottom: 1px solid #eee; }
+  img { width: 120px; height: 120px; background: #eee; }
+  footer { position: sticky; bottom: 0; background: #111; color: #0f0; padding: 10px 20px; font-family: monospace; }
+</style>
+</head>
+<body>
+<h1 style="padding-left:20px">向下滚动触发 IntersectionObserver 懒加载(共 30 张)</h1>
+<div id="list"></div>
+<footer>已加载 <span id="count">0</span> / 30</footer>
+<script>
+  const list = document.getElementById('list');
+  const colors = ['d33','e80','0a5','06c','83c','666','a06','0a8','880','508'];
+  let loaded = 0;
+  const io = new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue;
+      const img = en.target;
+      io.unobserve(img);
+      // 模拟真实懒加载:进入视口才赋 src,并延迟 300ms
+      setTimeout(() => {
+        const c = colors[+img.dataset.i % colors.length];
+        img.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" fill="%23' + c + '"/><text x="60" y="66" font-size="28" fill="white" text-anchor="middle">' + img.dataset.i + '</text></svg>';
+        img.onload = () => { loaded++; document.getElementById('count').textContent = loaded; };
+      }, 300);
+    }
+  }, { rootMargin: '200px' });
+  for (let i = 0; i < 30; i++) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = '<img data-i="' + i + '"><span>第 ' + (i + 1) + ' 行占位内容</span>';
+    list.appendChild(row);
+    io.observe(row.querySelector('img'));
+  }
+</script>
+</body>
+</html>
