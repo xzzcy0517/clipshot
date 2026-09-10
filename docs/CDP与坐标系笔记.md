@@ -41,9 +41,17 @@ dpr **不**取自 CDP:取 content 的 `window.devicePixelRatio`(即 surface 输�
 
 ## 整页捕获行为要点
 
-- **v0.1.1 实测教训:整页捕获必须带显式 clip**(`clip:{x:0,y:0,width:cssW,height:cssH,scale:1}`
-  + `captureBeyondViewport:true`)。不带 clip 的写法在新版 Chrome 上会把视口外区域
-  渲染成空白/截断,且尺寸"看起来正常",绝对尺寸校验发现不了(v0.1.0 的长图缺失 bug 即此)。
+- **v0.2.0 最终结论:`captureBeyondViewport` 不可信**(v0.1.0 无 clip、v0.1.1 带显式
+  clip 两轮实测都**只渲染第一屏、其余留白且画布尺寸正确**——绝对尺寸与比例对账
+  都防不住这种"尺寸对、内容空"的失败)。主路径改为
+  **`Emulation.setDeviceMetricsOverride` 放大/定位视口 + 普通视口截图**,与 DevTools
+  「Capture full size screenshot」同款机制;它同时天然触发一次 IntersectionObserver
+  批量懒加载(capture 前 waitForIdle 等它落地)。
+- 仿真视口的面积纪律:单边/面积过大时 Chrome 拒绝或渲染空白,本项目限制
+  cssW×dpr×H×dpr ≤ 60M 设备像素,超出走「分段仿真」(每段视口=chunk 高)。
+- 副作用:视口仿真期间页面按放大视口重排(如 100vh 元素会变高),fixed 元素会
+  粘在巨大视口顶部——隐藏固定元素选项在此模式下尤为重要;结束必须
+  `clearDeviceMetricsOverride`(runFull finally 有双保险)。
 - **完整性校验用宽高比对账**:Chrome 渲染存在 ~16384px 量级的硬上限,超限截断的图
   比例必失真;`geom.aspectOk` 利用「比例在 CSS px / 设备 px 两种解释下都守恒」这一点,
   不依赖对 clip 单位语义的猜测。截断/空白类 bug 的兜底判定都走它。

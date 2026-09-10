@@ -9,7 +9,7 @@
  */
 globalThis.ClipShot = globalThis.ClipShot || {};
 (function (CS) {
-  CS.EXT_VER = '0.1.1';
+  CS.EXT_VER = '0.2.0';
 
   /** 一次性消息类型(request/response) */
   CS.MSG = {
@@ -28,9 +28,10 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     METRICS: 'cs/metrics',          // {} → {ok,docW,docH,vw,vh,dpr,scroller,scrollerPath}
     SCROLL_START: 'cs/scroll.start',// {cfg} → {ok}(随后 content 建立 SCROLL_PORT)
     SCROLL_STOP: 'cs/scroll.stop',  // {reason} → {ok}
+    SCROLL_TO: 'cs/scroll.to',      // {y 文档CSS px} → {ok,prev,applied}(分段/元素捕获定位)
     HIDE_FIXED: 'cs/hideFixed',     // {} → {ok,fixedCount,stickyCount}
     RESTORE_FIXED: 'cs/restoreFixed',// {} → {ok,restored}
-    PICK_GET: 'cs/pick.get',        // {maxAgeMs} → {ok,rectDoc,tag} | {ok:false,error}
+    PICK_GET: 'cs/pick.get',        // {maxAgeMs} → {ok,rectDoc,rectVp,tag} | {ok:false,error}
     MARQUEE_BEGIN: 'cs/marquee.begin',// {} → {ok}
     MARQUEE_CLEAR: 'cs/marquee.clear',// {} → {ok}
     // content → sw

@@ -236,8 +236,19 @@
     return {
       ok: true,
       rectDoc: { x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height },
+      rectVp: { x: r.x, y: r.y, width: r.width, height: r.height }, // 视口坐标,用于「元素已在视口内」的零横幅判断
       tag: describe(el)
     };
+  }
+
+  /** 分段/元素捕获的滚动定位(文档 CSS px) */
+  async function scrollTo(y) {
+    const sc = findScroller();
+    const el = sc.el;
+    const prev = el.scrollTop;
+    el.scrollTop = Math.max(0, y);
+    await sleep(60); // 让一帧渲染落地
+    return { ok: true, prev, applied: el.scrollTop };
   }
 
   /* ------------------------------------------------------- 框选 marquee */
@@ -336,6 +347,7 @@
       case MSG.METRICS: return metrics();
       case MSG.SCROLL_START: return startScroll(m.cfg);
       case MSG.SCROLL_STOP: return stopScroll(m.reason);
+      case MSG.SCROLL_TO: return scrollTo(m.y);
       case MSG.HIDE_FIXED: return hideFixed();
       case MSG.RESTORE_FIXED: return restoreFixed();
       case MSG.PICK_GET: return pickGet(m.maxAgeMs);
