@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>ClipShot 预览</title>
+  <link rel="stylesheet" href="preview.css">
+</head>
+<body>
+  <header>
+    <div class="left">
+      <strong>ClipShot 预览</strong>
+      <span id="info" class="info">加载中…</span>
+    </div>
+    <div class="right">
+      <button id="zoom-out" title="缩小">－</button>
+      <button id="zoom-fit">适应宽度</button>
+      <button id="zoom-100">100%</button>
+      <button id="zoom-in" title="放大">＋</button>
+      <span id="zoom-label" class="info"></span>
+      <span class="sep"></span>
+      <button id="btn-copy">复制到剪贴板</button>
+      <button id="btn-download" class="primary">下载</button>
+    </div>
+  </header>
+
+  <div id="notes"></div>
+  <div id="status" class="status hidden"></div>
+
+  <main id="stage">
+    <div id="wrap"></div>
+  </main>
+
+  <script src="../common/messages.js"></script>
+  <script src="../common/geom.js"></script>
+  <script src="../common/naming.js"></script>
+  <script src="preview.js"></script>
+</body>
+</html>

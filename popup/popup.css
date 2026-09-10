@@ -1,0 +1,43 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  width: 320px; margin: 0; padding: 14px;
+  font: 13px/1.6 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #1c2330; background: #f7f8fa;
+}
+@media (prefers-color-scheme: dark) {
+  body { color: #dde3ee; background: #171a21; }
+  fieldset { border-color: #333a48; }
+  .btns button { background: #232833; border-color: #3a4150; color: #dde3ee; }
+  .btns button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+  .bar { background: #2a3040; }
+  select, .link { background: #232833; color: #dde3ee; border-color: #3a4150; }
+}
+h1 { font-size: 15px; margin: 0 0 10px; }
+.btns { display: flex; flex-direction: column; gap: 8px; }
+.btns button {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 9px 12px; border-radius: 8px; border: 1px solid #ccd2dd;
+  background: #fff; cursor: pointer; font-size: 13px;
+}
+.btns button:hover { border-color: #2f6fe4; }
+.btns button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+.kbd { font-size: 11px; opacity: .65; font-family: ui-monospace, monospace; }
+.hint { margin-top: 10px; font-size: 12px; opacity: .75; }
+.progress { margin-top: 10px; }
+.progress.hidden { display: none; }
+.bar { height: 6px; border-radius: 3px; background: #e3e7ee; overflow: hidden; }
+#barfill { height: 100%; width: 0; background: #2f6fe4; transition: width .3s; }
+#progresstext { margin-top: 6px; font-size: 12px; }
+.link { border: none; background: none; color: #2f6fe4; cursor: pointer; font-size: 12px; padding: 2px 0; }
+fieldset { margin-top: 12px; border: 1px solid #d6dbe4; border-radius: 8px; padding: 10px; }
+legend { font-size: 12px; padding: 0 4px; opacity: .8; }
+label { display: block; margin: 4px 0; }
+label.row { display: flex; align-items: center; gap: 6px; }
+select { padding: 3px 6px; border-radius: 6px; border: 1px solid #ccd2dd; }
+.mini { margin-top: 8px; font-size: 11px; opacity: .7; }
+.notice {
+  margin-top: 10px; padding: 8px 10px; border-radius: 8px; font-size: 12px;
+  background: #fff3d6; color: #6b4d00; border: 1px solid #f0d48a;
+}
+.notice.hidden { display: none; }

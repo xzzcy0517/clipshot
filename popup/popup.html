@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>ClipShot</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>ClipShot 滚动长截图</h1>
+
+  <div class="btns">
+    <button id="btn-full" class="primary">整页长截图<span class="kbd">Alt+Shift+F</span></button>
+    <button id="btn-visible">可视区域截图<span class="kbd">Alt+Shift+V</span></button>
+    <button id="btn-region">框选区域截图<span class="kbd">Alt+Shift+S</span></button>
+  </div>
+  <div class="hint">截取单个元素:在目标元素上<strong>右键 → ClipShot:截取此元素</strong></div>
+
+  <div id="progress" class="progress hidden">
+    <div class="bar"><div id="barfill"></div></div>
+    <div id="progresstext">准备中…</div>
+    <button id="btn-cancel" class="link">取消</button>
+  </div>
+
+  <fieldset>
+    <legend>快捷设置</legend>
+    <label>图片格式
+      <select id="format">
+        <option value="png">PNG(无损)</option>
+        <option value="jpeg">JPEG(体积小)</option>
+      </select>
+    </label>
+    <label class="row"><input type="checkbox" id="hideFixed"> 截图时隐藏固定元素(sticky 顶栏/悬浮窗)</label>
+    <div class="mini">完整设置(滚动速度、分段阈值、诊断):<a href="#" id="open-options">打开设置页</a></div>
+  </fieldset>
+
+  <div id="notice" class="notice hidden"></div>
+
+  <script src="../common/messages.js"></script>
+  <script src="../common/settings.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

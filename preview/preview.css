@@ -1,0 +1,40 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0; font: 13px/1.6 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #1c2330; background: #eef0f4; display: flex; flex-direction: column; height: 100vh;
+}
+@media (prefers-color-scheme: dark) {
+  body { color: #dde3ee; background: #101318; }
+  header { background: #171a21; border-color: #2a3040; }
+  button { background: #232833; border-color: #3a4150; color: #dde3ee; }
+  button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+}
+header {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 8px 14px; background: #fff; border-bottom: 1px solid #d6dbe4; flex-wrap: wrap;
+}
+header .left, header .right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.info { font-size: 12px; opacity: .7; }
+.sep { width: 1px; height: 20px; background: currentColor; opacity: .2; margin: 0 4px; }
+button {
+  padding: 5px 12px; border-radius: 7px; border: 1px solid #ccd2dd; background: #fff;
+  cursor: pointer; font-size: 13px;
+}
+button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+button:hover { filter: brightness(1.05); }
+#notes { padding: 0; }
+.note {
+  margin: 8px 14px 0; padding: 7px 12px; border-radius: 8px; font-size: 12px;
+  background: #fff3d6; color: #6b4d00; border: 1px solid #f0d48a;
+}
+.status { margin: 8px 14px 0; padding: 10px 14px; border-radius: 8px; background: #fdecec; color: #8a1f1f; border: 1px solid #f3bcbc; }
+.status.hidden { display: none; }
+#stage { flex: 1; overflow: auto; padding: 16px; }
+#wrap img {
+  display: block; max-width: none; background: repeating-conic-gradient(#c8cdd6 0% 25%, #fff 0% 50%) 0 0 / 24px 24px;
+  box-shadow: 0 1px 6px rgba(0,0,0,.18);
+}
+.seg-list { display: flex; flex-direction: column; gap: 12px; }
+.seg-item img { max-width: 100%; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
+.seg-item .cap { font-size: 12px; opacity: .7; margin-bottom: 4px; }
