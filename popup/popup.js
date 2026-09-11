@@ -26,6 +26,20 @@
     if (activeTabId != null) chrome.runtime.sendMessage({ type: CS.MSG.JOB_CANCEL, tabId: activeTabId });
   });
 
+  // 诊断:面板不抢当前页焦点,能正确取到用户正在看的页面(设置页做不到的原因)
+  $('btn-diag').addEventListener('click', async () => {
+    if (activeTabId == null) return notice('未找到当前标签页');
+    const r = await chrome.runtime.sendMessage({ type: CS.MSG.DIAG_METRICS, tabId: activeTabId });
+    if (!r || !r.ok) return notice('诊断失败:' + CS.errText((r && r.error) || CS.ERR.UNKNOWN));
+    const text = JSON.stringify({ ua: navigator.userAgent, dpr: r.dpr, raw: r.raw, normalized: r.metrics }, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      notice('诊断 JSON 已复制到剪贴板,可直接粘贴发给开发者');
+    } catch (e) {
+      notice('诊断完成,但复制失败:' + ((e && e.message) || e));
+    }
+  });
+
   for (const [id, mode] of [['btn-full', 'full'], ['btn-visible', 'visible'], ['btn-region', 'region']]) {
     $(id).addEventListener('click', async () => {
       if (activeTabId == null) return notice('未找到当前标签页');

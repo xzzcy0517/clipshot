@@ -780,6 +780,8 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   /* ---------------------------------------------------------------- 诊断 */
 
   pipeline.diag = async function (tabId) {
+    // 诊断也要建调试会话:若该页正在截图,attach 会冲突,直接报 BUSY
+    if (jobsByTab.has(tabId)) return { ok: false, error: ERR.BUSY };
     try {
       await ensureContent(tabId);
     } catch (e) {

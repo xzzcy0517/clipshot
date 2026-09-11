@@ -22,7 +22,6 @@ select { padding: 4px 8px; border-radius: 6px; border: 1px solid #ccd2dd; margin
 .kbd-table td { padding: 3px 16px 3px 0; }
 .kbd-table td:last-child { font-family: ui-monospace, monospace; }
 .mini { font-size: 12px; opacity: .7; }
-.row-btns { display: flex; gap: 10px; margin: 10px 0; }
 button {
   padding: 6px 14px; border-radius: 8px; border: 1px solid #ccd2dd; background: #fff; cursor: pointer;
 }

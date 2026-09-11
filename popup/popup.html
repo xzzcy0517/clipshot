@@ -30,8 +30,12 @@
       </select>
     </label>
     <label class="row"><input type="checkbox" id="hideFixed"> 截图时隐藏固定元素(sticky 顶栏/悬浮窗)</label>
-    <div class="mini">完整设置(滚动速度、分段阈值、诊断):<a href="#" id="open-options">打开设置页</a></div>
+    <div class="mini">完整设置(滚动速度、分段阈值等):<a href="#" id="open-options">打开设置页</a></div>
   </fieldset>
+
+  <div class="foot-row">
+    <button id="btn-diag" class="link" title="对当前网页导出 layoutMetrics 诊断 JSON 并复制到剪贴板(会短暂出现调试提示条)">诊断当前页面(复制排障 JSON)</button>
+  </div>
 
   <div id="notice" class="notice hidden"></div>
 

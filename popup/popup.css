@@ -41,3 +41,4 @@ select { padding: 3px 6px; border-radius: 6px; border: 1px solid #ccd2dd; }
   background: #fff3d6; color: #6b4d00; border: 1px solid #f0d48a;
 }
 .notice.hidden { display: none; }
+.foot-row { margin-top: 10px; text-align: center; }

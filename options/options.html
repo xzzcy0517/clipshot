@@ -49,18 +49,8 @@
     <div class="mini">如需改键:chrome://extensions/shortcuts。右键页面元素 → 「ClipShot:截取此元素」。</div>
   </fieldset>
 
-  <fieldset>
-    <legend>诊断(校准坐标系用)</legend>
-    <div class="mini">对当前标签页临时建立调试会话,导出 <code>Page.getLayoutMetrics</code> 原始 JSON。
-      截图期间页面顶部会短暂出现调试提示条,属正常现象。遇到问题时把这段 JSON 反馈给开发者。</div>
-    <div class="row-btns">
-      <button id="btn-diag">导出当前页诊断信息</button>
-      <button id="btn-copy-diag" disabled>复制 JSON</button>
-    </div>
-    <textarea id="diag-out" rows="10" placeholder="诊断结果将显示在这里"></textarea>
-  </fieldset>
-
-  <div class="mini">设置自动保存。扩展版本 <span id="ver"></span></div>
+  <div class="mini">设置自动保存。扩展版本 <span id="ver"></span>
+    — 排障用的页面诊断已移至工具栏面板(打开某个网页 → 点 ClipShot 图标 → 「诊断当前页面」)。</div>
 
   <script src="../common/messages.js"></script>
   <script src="../common/settings.js"></script>

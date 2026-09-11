@@ -26,7 +26,7 @@ dpr **不**取自 CDP:取 content 的 `window.devicePixelRatio`(即 surface 输�
 
 ## 真机 dump 样本(待回填)
 
-> 本地 Chrome 打开对应页面 → 设置页「导出当前页诊断信息」→ 把 JSON 粘在这里,
+> 本地 Chrome 打开对应页面 → ClipShot 面板「诊断当前页面」→ 把 JSON 粘在这里,
 > 同步补进 `tests/geom.test.mjs`。**截图错位/尺寸类 bug 先收这个。**
 
 ### 样本 1:clip-probe.html @ Chrome ____ / 缩放 100% / dpr ____

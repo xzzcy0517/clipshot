@@ -98,9 +98,11 @@ chrome.runtime.onMessage.addListener((m, sender, sendResponse) => {
           sendResponse({ ok: true });
           return;
         }
-        case MSG.DIAG_METRICS:
-          sendResponse(await CS.pipeline.diag(m.tabId));
+        case MSG.DIAG_METRICS: {
+          const tabId = m.tabId != null ? m.tabId : (await getActiveTab() || {}).id;
+          sendResponse(tabId != null ? await CS.pipeline.diag(tabId) : { ok: false, error: CS.ERR.NO_TARGET });
           return;
+        }
         default:
           sendResponse({ ok: false, error: CS.ERR.UNKNOWN });
       }
