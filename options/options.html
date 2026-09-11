@@ -49,6 +49,21 @@
     <div class="mini">如需改键:chrome://extensions/shortcuts。右键页面元素 → 「ClipShot:截取此元素」。</div>
   </fieldset>
 
+  <fieldset>
+    <legend>Agent 桥接(让 AI Agent 调用截图)</legend>
+    <div class="mini">
+      让 Cursor / 豆包 / Codex 等 Agent 通过本机 HTTP 命令调用 ClipShot 截图,图片自动存到
+      <code>~/clipshot-out/</code>。完整步骤见
+      <code>docs/Agent接入指南.md</code>。快速上手:终端运行
+      <code>node bridge/relay.mjs</code>,把打印的 token 粘贴到下面并勾选启用。
+    </div>
+    <label class="row"><input type="checkbox" id="bridgeEnabled"> 启用 Agent 桥接</label>
+    <label>relay 端口<input type="number" id="bridgePort" min="1024" max="65535" step="1" value="8790"></label>
+    <label>token <input type="text" id="bridgeToken" size="36" placeholder="relay 启动时打印的十六进制串" autocomplete="off" spellcheck="false"></label>
+    <div class="status-line">连接状态:<span id="bridge-status">—</span>
+      <button id="bridge-refresh" type="button">刷新</button></div>
+  </fieldset>
+
   <div class="mini">设置自动保存。扩展版本 <span id="ver"></span>
     — 排障用的页面诊断已移至工具栏面板(打开某个网页 → 点 ClipShot 图标 → 「诊断当前页面」)。</div>
 

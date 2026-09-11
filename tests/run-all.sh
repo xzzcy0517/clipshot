@@ -11,5 +11,6 @@ echo "── 测试"
 node tests/manifest.test.mjs
 node tests/geom.test.mjs
 node tests/protocol.test.mjs
+node tests/ws-relay.test.mjs
 
 echo "✔ 全部静态校验通过"

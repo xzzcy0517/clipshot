@@ -8,6 +8,8 @@
 - **右击截取元素**:页面任意元素右键 → 「ClipShot:截取此元素」
 - **隐藏固定元素**:sticky 顶栏、悬浮客服等可从长图中剔除
 - 截图完成后打开**预览页**:缩放查看、下载 PNG/JPEG、复制到剪贴板
+- **Agent 桥接**:本机 HTTP 指令调用截图,给 Cursor / 豆包 / Codex 等 AI Agent 用,
+  图片落盘 `~/clipshot-out/`——见 [docs/Agent接入指南.md](docs/Agent接入指南.md)
 
 ## 快速上手
 

@@ -1,0 +1,175 @@
+# Agent 接入指南(给不看代码的你)
+
+这份指南的目标:**不写一行代码**,让 Cursor / 豆包工作 / WorkBuddy / Codex 这类
+AI Agent 能直接调用 ClipShot 截图(包括你最爱的整页滚动长图),截好的图自动存进
+`~/clipshot-out/` 文件夹,Agent 拿到文件路径就能识图。
+
+原理一句话:你的电脑上跑一个很小的「传令官」程序(relay),Agent 对它喊一声,
+它转告 Chrome 里的 ClipShot 去截图,截完把文件路径递回来。
+
+---
+
+## 第 0 步:检查电脑有没有 Node(只需一次)
+
+打开「终端」(按 `Cmd+空格`,输入 `terminal` 回车),粘贴这行回车:
+
+```bash
+node --version
+```
+
+- 显示 `v18` 及以上数字 → 通过,去第 1 步。
+- 提示 `command not found` → 去 https://nodejs.org/zh-cn 点 **LTS** 大按钮下载安装,装完重开终端再看一次。
+
+## 第 1 步:启动传令官
+
+终端里运行(路径换成你本地 ClipShot 仓库的位置,下同):
+
+```bash
+cd ~/你的路径/clipshot && node bridge/relay.mjs
+```
+
+会打印这样一个框:
+
+```
+┌─────────────────────────────────────────────────────
+│ ClipShot Agent 桥 v0.3.0 已启动
+│ 地址        http://127.0.0.1:8790
+│ token       9f3a…(一串 32 位十六进制)  ← 复制这一串!
+│ 截图输出    /Users/你/clipshot-out
+│ 配置存于    /Users/你/.clipshot/relay.json
+│ 用法与排错  docs/Agent接入指南.md
+└─────────────────────────────────────────────────────
+```
+
+**这个终端窗口保持开着**(关了桥就断了)。右下角它会持续显示
+`○ 等待扩展连接`,等你做完第 2 步会变成 `● 扩展已连接`。
+
+> token 只在首次启动时生成一次,以后每次都一样;忘了就去 `~/.clipshot/relay.json` 里看。
+
+## 第 2 步:告诉 ClipShot 扩展「token 对得上」
+
+1. 地址栏进 `chrome://extensions` → ClipShot 卡片右下角「详情」→「扩展程序」旁的
+   **图标**点开(或在工具栏点 ClipShot 图标 → 面板底部「打开设置页」);
+2. 找到「**Agent 桥接**」区:勾选「启用 Agent 桥接」;
+3. 把第 1 步打印的 token **原样粘贴**进 token 框(粘贴即自动保存);
+4. 看「连接状态」:应显示 **● 已连接 relay**。
+   - 显示 ○ 未连接:等 30 秒(桥每 30 秒自动重试),或点一下「刷新」;
+   - 提示 token 不匹配:重新复制粘贴一遍。
+
+## 第 3 步:验证通不通(30 秒)
+
+**再开一个新的终端窗口**,粘贴(token 换成你自己的):
+
+```bash
+curl -s http://127.0.0.1:8790/v1/health
+```
+
+看到 `"extension":{"connected":true` 就全通了。手动截一张试试——
+先在 Chrome 里随便打开一个长网页,然后:
+
+```bash
+curl -s http://127.0.0.1:8790/v1/screenshot \
+  -H 'X-ClipShot-Token: 你的token' \
+  -d '{"mode":"full"}'
+```
+
+几秒到几十秒后返回一堆信息,里面 `"path":"/Users/…/clipshot-out/ClipShot_xxx_full.png"`
+——去这个文件双击打开,就是你的整页长图。**到这里,人肉流程闭环了。**
+
+其他两种玩法:
+
+```bash
+# 只截当前一屏
+… -d '{"mode":"visible"}'
+
+# 截某个元素(按网页的 CSS 选择器,开发者工具右键「复制选择器」可得)
+… -d '{"mode":"element","selector":"#article-body"}'
+
+# 指定截哪个标签页(按网址包含匹配)/ 用 JPEG 压缩超长页
+… -d '{"mode":"full","target":{"urlContains":"feishu.cn"},"format":"jpeg"}'
+```
+
+## 第 4 步:让 Agent 自己来调(重点,直接抄)
+
+对会执行终端命令的 Agent(Cursor / 豆包工作 / Codex / WorkBuddy / Claude Code…),
+把下面**整段**发给它一次,它以后就会自己截图了:
+
+```text
+【ClipShot 截图桥 接入说明——保存到你的项目记忆里】
+本机运行着一个截图服务(ClipShot Agent 桥):
+- 健康检查: curl -s http://127.0.0.1:8790/v1/health
+- 截图:     curl -s http://127.0.0.1:8790/v1/screenshot \
+              -H 'X-ClipShot-Token: 你的token' \
+              -d '{"mode":"full"}'
+- mode 可选:full(整页长图,自动滚动加载)/ visible(当前屏)/
+  element(需 selector,截指定元素)
+- target 可选:"active"(默认当前页)或 {"urlContains":"关键字"} 按网址找标签页
+- 返回 JSON 的 image.path 就是 PNG/JPEG 文件路径,用你的识图能力读它即可看到页面内容
+- 错误处理:EXTENSION_OFFLINE=用户 Chrome 里桥接没启用/浏览器没开;
+  BUSY=上一张还在截,等 10 秒重试;TIMEOUT=页面太大,改 format:"jpeg" 重试
+- 截网页给我看之前,默认用 full 模式,它比你自己截图多能拍到滚动区域外的内容。
+```
+
+(把 `你的token` 替换成第 1 步那串。)之后你在 Agent 对话里说
+「看看我现在浏览器这个页面」「把这个文档整页截下来读一下」,它自己会跑命令。
+
+## 进阶(可跳过)
+
+**A. 开机自动启动 relay(Mac)**:新建文件 `~/Library/LaunchAgents/com.clipshot.relay.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.clipshot.relay</string>
+  <key>ProgramArguments</key><array>
+    <string>/usr/local/bin/node</string>   <!-- 用 `which node` 查出实际路径替换 -->
+    <string>/你的路径/clipshot/bridge/relay.mjs</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/clipshot-relay.log</string>
+  <key>StandardErrorPath</key><string>/tmp/clipshot-relay.log</string>
+</dict></plist>
+```
+
+终端执行:`launchctl load ~/Library/LaunchAgents/com.clipshot.relay.plist`
+(卸载:`launchctl unload …` 同一路径)。之后 relay 常驻后台,日志在 `/tmp/clipshot-relay.log`。
+
+**B. Agent 用 Playwright/CDP 自启浏览器时**:那个浏览器没有你的扩展,启动参数加上:
+
+```js
+chromium.launchPersistentContext('', {
+  headless: false,
+  args: ['--disable-extensions-except=/你的路径/clipshot', '--load-extension=/你的路径/clipshot']
+});
+```
+
+并且要在那个浏览器里再做一次第 2 步的启用+token。
+⚠️ 冲突提醒:Playwright 自己正用 CDP 调试某个页面时,ClipShot 的**整页模式**会报
+`DEVTOOLS_CONFLICT`(一个页面只能有一个调试者);`visible` 模式不受影响。
+让 Agent 先 `page` 释放或换用 visible。
+
+**C. P2 预告(MCP 直连)**:下一版会提供 `bridge/mcp.mjs`,在 Cursor/Claude Code 的
+MCP 配置里加一行后,对话里直接「截个图看看」就能收到图片本身,不用再走终端命令。
+
+## 排错速查
+
+| 你看到 | 意思 | 一步解决 |
+|---|---|---|
+| `node: command not found` | 没装 Node | 第 0 步装 Node |
+| relay 启动报 `EADDRINUSE` | 8790 被占(通常是一个旧 relay 还开着) | 找到旧终端关掉,或 `node bridge/relay.mjs --port 8791` |
+| health 里 `connected:false` | 扩展侧没连上 | 设置页确认已勾选启用 + token 完全一致;点 ClipShot 图标唤醒扩展;等 30 秒 |
+| curl 报 `connection refused` | relay 没在跑 | 回第 1 步启动它 |
+| 401 `BAD_TOKEN` | curl 里的 token 不对 | 从 `~/.clipshot/relay.json` 重抄 |
+| `BUSY` | 上一张还在截 | 等 10 秒重试 |
+| `DEVTOOLS_CONFLICT` | 该页被调试器/Playwright 占用 | 关掉 DevTools 或换 visible 模式 |
+| `EXTENSION_DEAD:请刷新页面` 类提示 | 页面是扩展安装前就开着的 | 刷新那个网页再截 |
+| 截出来的图很长但分辨率低 | 走了 1/2 降分辨率或分段 | 正常;介意就在设置页调大分段阈值/用 PNG |
+| 504 `TIMEOUT` | 页面太大太慢 | 加 `"format":"jpeg"`,或分段阈值调小 |
+
+## 安全须知(一句话版)
+
+桥只监听 `127.0.0.1`(本机),不会暴露到局域网/互联网;所有指令(health 除外)
+必须带 token,没有 token 的本机其他程序也指挥不动你的浏览器。
+不要把你的 token 发给任何人或写进公开仓库。

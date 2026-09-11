@@ -254,17 +254,14 @@
     pickRecord = { el: e.target, at: Date.now() };
   }, true);
 
-  function pickGet(maxAgeMs) {
-    if (!pickRecord || Date.now() - pickRecord.at > (maxAgeMs || 30000)) {
-      return { ok: false, error: ERR.ELEMENT_GONE };
-    }
-    const el = pickRecord.el;
-    if (!el || !el.isConnected) return { ok: false, error: ERR.ELEMENT_GONE };
+  /**
+   * 视口 → 文档坐标换算只发生在这里(坐标系纪律)。
+   * 内部滚动容器页面(飞书文档类)window 不滚动,坐标必须换算到
+   * 「活动滚动容器的内容空间」,与 SCROLL_TO 的坐标系保持一致。
+   */
+  function rectOf(el) {
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return { ok: false, error: ERR.ELEMENT_GONE };
-    // 视口 → 文档坐标换算只发生在这里(坐标系纪律)。
-    // 内部滚动容器页面(飞书文档类)window 不滚动,坐标必须换算到
-    // 「活动滚动容器的内容空间」,与 SCROLL_TO 的坐标系保持一致。
     const sc = findScroller();
     let rectDoc;
     if (sc.kind === 'internal') {
@@ -283,6 +280,24 @@
       rectVp: { x: r.x, y: r.y, width: r.width, height: r.height }, // 视口坐标,用于「元素已在视口内」的零横幅判断
       tag: describe(el)
     };
+  }
+
+  function pickGet(maxAgeMs) {
+    if (!pickRecord || Date.now() - pickRecord.at > (maxAgeMs || 30000)) {
+      return { ok: false, error: ERR.ELEMENT_GONE };
+    }
+    const el = pickRecord.el;
+    if (!el || !el.isConnected) return { ok: false, error: ERR.ELEMENT_GONE };
+    return rectOf(el);
+  }
+
+  /** Agent 桥接:按 CSS 选择器定位元素(比右键拾取更适合程序调用) */
+  function queryRect(selector) {
+    if (!selector || typeof selector !== 'string') return { ok: false, error: ERR.NO_TARGET };
+    let el = null;
+    try { el = document.querySelector(selector); } catch (e) { return { ok: false, error: ERR.NO_TARGET }; }
+    if (!el) return { ok: false, error: ERR.NO_TARGET };
+    return rectOf(el);
   }
 
   /** 把右键记录的元素原生滚入视野,返回新鲜视口 rect(嵌套滚动容器由浏览器处理) */
@@ -415,6 +430,7 @@
       case MSG.HIDE_FIXED: return hideFixed();
       case MSG.RESTORE_FIXED: return restoreFixed();
       case MSG.PICK_GET: return pickGet(m.maxAgeMs);
+      case MSG.PICK_QUERY: return queryRect(m.selector);
       case MSG.MARQUEE_BEGIN: return marqueeBegin();
       case MSG.MARQUEE_CLEAR: marqueeTeardown(); return { ok: true };
       default: return { ok: false, error: ERR.UNKNOWN };

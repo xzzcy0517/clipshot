@@ -11,7 +11,8 @@ importScripts(
   '/background/cdp.js',
   '/background/networkidle.js',
   '/background/imagestore.js',
-  '/background/pipeline.js'
+  '/background/pipeline.js',
+  '/background/bridge.js'
 );
 
 const CS = globalThis.ClipShot;
@@ -24,11 +25,13 @@ CS.broadcast = function (msg) {
 
 /* ---------------- debugger 会话防泄漏:每次唤醒先清扫残留 ---------------- */
 CS.cdp.sweepAttached();
-chrome.runtime.onStartup.addListener(() => CS.cdp.sweepAttached());
+CS.bridge.init(); // 每次唤醒都尝试恢复 Agent 桥连接(配置读自 storage.sync)
+chrome.runtime.onStartup.addListener(() => { CS.cdp.sweepAttached(); CS.bridge.reload(); });
 
 /* ---------------- 安装/更新:重建右键菜单 ---------------- */
 chrome.runtime.onInstalled.addListener(() => {
   CS.cdp.sweepAttached();
+  CS.bridge.reload();
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: 'clipshot-element',
@@ -103,6 +106,9 @@ chrome.runtime.onMessage.addListener((m, sender, sendResponse) => {
           sendResponse(tabId != null ? await CS.pipeline.diag(tabId) : { ok: false, error: CS.ERR.NO_TARGET });
           return;
         }
+        case MSG.BRIDGE_STATE:
+          sendResponse(Object.assign({ ok: true }, CS.bridge.status()));
+          return;
         default:
           sendResponse({ ok: false, error: CS.ERR.UNKNOWN });
       }
@@ -126,6 +132,12 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name === CS.SCROLL_PORT) CS.pipeline.handleScrollConnect(port);
 });
 
-/* ---------------- 标签页关闭 / alarm ---------------- */
+/* ---------------- 标签页关闭 / alarm / 桥接设置变更 ---------------- */
 chrome.tabs.onRemoved.addListener((tabId) => CS.pipeline.onTabClosed(tabId));
-chrome.alarms.onAlarm.addListener((a) => CS.pipeline.onAlarm(a.name));
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name === 'bridge-heart') { CS.bridge.tick(); return; }
+  CS.pipeline.onAlarm(a.name);
+});
+chrome.storage.onChanged.addListener((ch, area) => {
+  if (area === 'sync' && Object.keys(ch).some(k => k.startsWith('bridge'))) CS.bridge.reload();
+});
