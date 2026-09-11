@@ -15,7 +15,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 
-export const RELAY_VERSION = '0.3.0';
+export const RELAY_VERSION = '0.4.0';
 const DEFAULT_PORT = 8790;
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const PING_INTERVAL_MS = 20000;
@@ -93,14 +93,15 @@ export function decodeFrames(buf, requireMask = true) {
 function ensureDir(d) { fs.mkdirSync(d, { recursive: true }); }
 
 export function loadOrCreateConfig({ port, out, resetToken }) {
-  const dir = path.join(os.homedir(), '.clipshot');
+  // CLIPSHOT_CONFIG_DIR / CLIPSHOT_OUT_DIR 仅供测试与便携部署覆盖,默认用户主目录
+  const dir = process.env.CLIPSHOT_CONFIG_DIR || path.join(os.homedir(), '.clipshot');
   ensureDir(dir);
   const file = path.join(dir, 'relay.json');
   let cfg = {};
   try { cfg = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { cfg = {}; }
   if (resetToken || !cfg.token) cfg.token = crypto.randomBytes(16).toString('hex');
   cfg.port = port || cfg.port || DEFAULT_PORT;
-  cfg.out = out || cfg.out || path.join(os.homedir(), 'clipshot-out');
+  cfg.out = out || process.env.CLIPSHOT_OUT_DIR || cfg.out || path.join(os.homedir(), 'clipshot-out');
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2));
   return { file, ...cfg };
 }

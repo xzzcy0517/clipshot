@@ -113,6 +113,48 @@ curl -s http://127.0.0.1:8790/v1/screenshot \
 (把 `你的token` 替换成第 1 步那串。)之后你在 Agent 对话里说
 「看看我现在浏览器这个页面」「把这个文档整页截下来读一下」,它自己会跑命令。
 
+## MCP 直连(Cursor / Claude Code / Codex 推荐,免终端免 curl)
+
+上面第 1~4 步的 curl 方式对所有 Agent 都有效。如果你的 Agent 支持 **MCP**
+(Cursor、Claude Code、Codex CLI 都支持),可以用更丝滑的直连方式:
+**不用再手动开 relay 终端窗口**——Agent 启动时会自动把桥拉起来,你在对话里
+直接说「把当前页面整页截下来看看」,它就自己调 ClipShot 截图并读到文件路径。
+
+### 一键安装
+
+终端运行(路径换成你的仓库位置):
+
+```bash
+cd ~/你的路径/clipshot && node bridge/mcp.mjs --install
+```
+
+它会自动:
+- **Claude Code**:执行 `claude mcp add clipshot …`(已装过会自动覆盖,幂等);
+- **Cursor**:合并写入 `~/.cursor/mcp.json`(保留你已有的其它 MCP 服务器,
+  改前自动备份为 `.bak`);
+- **Codex / 其他产品**:打印现成配置片段(绝对路径都填好了),复制粘贴即可;
+- 最后自检一遍,打印「✔ 安装完成」。
+
+装完**重启你的 Agent**,对话里说一句「用 clipshot 查一下桥状态」或直接
+「把当前浏览器页面整页截图」即可。截图文件照旧落在 `~/clipshot-out/`。
+
+### 它和 curl 方式的关系
+
+- 两者**并存不冲突**:MCP 进程内嵌了同一个 relay;如果你手动开着 P1 的 relay,
+  MCP 进程会自动降级成客户端连它(端口不会打架)。
+- 扩展侧**零变化**:还是设置页那一个「Agent 桥接」开关和 token,装过 P1 就不用再动。
+- 不想用了怎么卸载:Claude Code 执行 `claude mcp remove clipshot`;
+  Cursor 删除 `~/.cursor/mcp.json` 里的 `clipshot` 条目(或用 `.bak` 备份还原)。
+
+### MCP 排错
+
+| 现象 | 一步解决 |
+|---|---|
+| Agent 里看不到 clipshot 工具 | 重启 Agent;确认安装时打印过 ✔;Cursor 看设置→MCP 列表里 clipshot 是否绿色 |
+| 工具报「扩展未连接」 | 和第 3 步一样:Chrome 开着、设置页桥接已启用、token 一致 |
+| 想看桥的日志 | Claude Code:`claude mcp list` 看状态;Cursor:MCP 面板点开看 stderr 日志 |
+| 端口 8790 被别的东西占了 | `node bridge/mcp.mjs --install --port 8791`(手动配置的产品记得 args 里加 `--port 8791`) |
+
 ## 进阶(可跳过)
 
 **A. 开机自动启动 relay(Mac)**:新建文件 `~/Library/LaunchAgents/com.clipshot.relay.plist`:
@@ -150,8 +192,7 @@ chromium.launchPersistentContext('', {
 `DEVTOOLS_CONFLICT`(一个页面只能有一个调试者);`visible` 模式不受影响。
 让 Agent 先 `page` 释放或换用 visible。
 
-**C. P2 预告(MCP 直连)**:下一版会提供 `bridge/mcp.mjs`,在 Cursor/Claude Code 的
-MCP 配置里加一行后,对话里直接「截个图看看」就能收到图片本身,不用再走终端命令。
+**C. MCP 直连**:已上线,见上一节「MCP 直连」。
 
 ## 排错速查
 
