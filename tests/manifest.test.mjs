@@ -42,4 +42,13 @@ assert.deepEqual(
   ['Alt+Shift+F', 'Alt+Shift+V', 'Alt+Shift+S']
 );
 
+// ── 版本一致性闸门(防腐烂的机械手段,见 CLAUDE.md 纪律#2)
+// manifest version === CS.EXT_VER === 开发日志的 vX.Y.Z 条目
+(0, eval)(readFileSync(join(ROOT, 'common/messages.js'), 'utf8'));
+assert.equal(globalThis.ClipShot.EXT_VER, m.version,
+  'CS.EXT_VER 与 manifest.json version 不一致:三处版本号必须同步 bump');
+const log = readFileSync(join(ROOT, 'docs/路线图与开发日志.md'), 'utf8');
+assert.ok(log.includes('v' + m.version),
+  `开发日志中找不到 v${m.version} 条目:发布新版本必须先写日志条目(本测试会拦截)`);
+
 console.log('✔ manifest.test.mjs');

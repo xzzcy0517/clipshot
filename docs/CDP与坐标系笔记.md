@@ -29,15 +29,29 @@ dpr **不**取自 CDP:取 content 的 `window.devicePixelRatio`(即 surface 输�
 > 本地 Chrome 打开对应页面 → ClipShot 面板「诊断当前页面」→ 把 JSON 粘在这里,
 > 同步补进 `tests/geom.test.mjs`。**截图错位/尺寸类 bug 先收这个。**
 
-### 样本 1:clip-probe.html @ Chrome ____ / 缩放 100% / dpr ____
+### 样本 1:飞书文档页 @ Chrome 152 / macOS / 缩放 100% / dpr 1(2026-09-11 用户面板诊断导出)
+
 ```json
-{ "待回填": true }
+{
+  "contentSize": { "height": 934, "width": 1857, "x": 0, "y": 0 },
+  "cssContentSize": { "height": 934, "width": 1857, "x": 0, "y": 0 },
+  "cssLayoutViewport": { "clientHeight": 934, "clientWidth": 1857, "pageX": 0, "pageY": 0 },
+  "cssVisualViewport": { "clientHeight": 934, "clientWidth": 1857, "offsetX": 0, "offsetY": 0, "pageX": 0, "pageY": 0, "scale": 1, "zoom": 1 },
+  "layoutViewport": { "clientHeight": 934, "clientWidth": 1857, "pageX": 0, "pageY": 0 },
+  "visualViewport": { "clientHeight": 934, "clientWidth": 1857, "offsetX": 0, "offsetY": 0, "pageX": 0, "pageY": 0, "scale": 1, "zoom": 1 }
+}
 ```
 
-### 样本 2:同一页 @ 系统缩放 125%(dpr 1.25)
-```json
-{ "待回填": true }
-```
+判读(已回灌 `tests/geom.test.mjs` 真机用例①):
+- `cssContentSize` 存在 → `sizeSource=cssContentSize` ✓;
+- **`cssVisualViewport` 的滚动字段是 `pageX/pageY`,并新增 `zoom`**;此版本没有
+  `scrollX/scrollY` → normalizeMetrics 的 `scrollX→pageX→pageScrollX` 取值顺序成立;
+- 飞书页 `cssContentSize` 高度 = 视口高(934),证实 document 不滚动、内容在内部
+  容器 → 捕获总高必须取容器 `scrollHeight`(v0.2.1 设计正确,实测拼接通过)。
+
+### 待收集样本
+- 普通 window 滚动页 @ dpr 2(验证 `pageY` 随滚动的语义 + 捕获输出是 CSS 还是设备分辨率)
+- 系统缩放 125%(dpr 1.25,验证分段堆叠不漂缝)
 
 ## 整页捕获行为要点
 

@@ -3,3 +3,7 @@ Thumbs.db
 node_modules/
 *.log
 *.zip
+
+# Claude Code 本机产物(.claude/skills 随仓库分发,不在此列)
+.claude/settings.local.json
+.claude/*.lock

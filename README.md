@@ -20,5 +20,8 @@
 
 ## 开发
 
+**任何 Agent(Claude Code / Kimi / 其他)或新人接手,先读 [CLAUDE.md](CLAUDE.md)**——环境约束、门禁、纪律和文档路由都在那一页(AGENTS.md 是它的兼容指针)。
+
 服务器(无浏览器)上只做静态校验:`bash tests/run-all.sh`;行为验证在本地 Chrome 用 `tests/fixtures/` 下的夹具页。
 架构与决策见 [docs/架构说明.md](docs/架构说明.md),进度见 [docs/路线图与开发日志.md](docs/路线图与开发日志.md)。
+一批工作完成后,Agent 会提醒你执行 neat-freak(`/neat`)做知识归档——是否收尾由你决定;本仓库自带项目级 skill(`.claude/skills/neat-freak/`)。

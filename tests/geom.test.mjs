@@ -33,6 +33,27 @@ assert.equal(r.cssW, 1024); assert.equal(r.cssH, 2048);
 assert.equal(r.psf, 2); assert.equal(r.scrollY, 200);
 assert.equal(r.sizeSource, 'contentSize');
 
+// 真机样本①:Chrome 152 / macOS / dpr1 / 飞书文档页(用户面板诊断导出,2026-09-11)。
+// 要点:cssContentSize 存在;cssVisualViewport 的滚动字段是 pageX/pageY(不是
+// scrollX/scrollY),且带新字段 zoom —— 归一化取值顺序在此形态上已验证。
+const chrome152 = {
+  contentSize: { x: 0, y: 0, width: 1857, height: 934 },
+  cssContentSize: { x: 0, y: 0, width: 1857, height: 934 },
+  cssLayoutViewport: { clientHeight: 934, clientWidth: 1857, pageX: 0, pageY: 0 },
+  cssVisualViewport: { clientHeight: 934, clientWidth: 1857, offsetX: 0, offsetY: 0, pageX: 0, pageY: 0, scale: 1, zoom: 1 },
+  layoutViewport: { clientHeight: 934, clientWidth: 1857, pageX: 0, pageY: 0 },
+  visualViewport: { clientHeight: 934, clientWidth: 1857, offsetX: 0, offsetY: 0, pageX: 0, pageY: 0, scale: 1, zoom: 1 }
+};
+r = geom.normalizeMetrics(chrome152);
+assert.deepEqual(r, { cssW: 1857, cssH: 934, psf: 1, scrollX: 0, scrollY: 0, sizeSource: 'cssContentSize' });
+// 同形态 + 非零 pageY(window 滚动的普通页面在该形态下的预期行为,锁死取值优先级)
+r = geom.normalizeMetrics({
+  cssContentSize: { width: 1857, height: 5000 },
+  cssVisualViewport: { clientWidth: 1857, clientHeight: 934, pageX: 0, pageY: 400, scale: 1, zoom: 1 }
+});
+assert.equal(r.cssH, 5000);
+assert.equal(r.scrollY, 400);
+
 // 空对象兜底
 r = geom.normalizeMetrics({});
 assert.equal(r.cssW, 1); assert.equal(r.psf, 1);
