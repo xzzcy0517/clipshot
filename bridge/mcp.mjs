@@ -222,8 +222,10 @@ function install(cli) {
   say(`  mcp 路径: ${MCP_PATH}`);
   say(`  node 路径: ${nodeBin}\n`);
 
-  // 1) Claude Code:官方 CLI,幂等
-  const claude = spawnSync('claude', ['--version'], { encoding: 'utf8', timeout: 8000 });
+  // 1) Claude Code:官方 CLI,幂等(测试环境用 CLIPSHOT_SKIP_CLAUDE 跳过,防真实改写用户配置)
+  const claude = process.env.CLIPSHOT_SKIP_CLAUDE
+    ? { status: -1 }
+    : spawnSync('claude', ['--version'], { encoding: 'utf8', timeout: 8000 });
   if (claude.status === 0) {
     say('① 检测到 Claude Code CLI:');
     const cmds = [['mcp', 'remove', 'clipshot'], ['mcp', 'add', 'clipshot', '--', nodeBin, MCP_PATH]];
@@ -250,7 +252,18 @@ function install(cli) {
     } else {
       let cfg = {};
       if (fs.existsSync(cpath)) {
-        try { cfg = JSON.parse(fs.readFileSync(cpath, 'utf8')); } catch (e) { say('   ⚠ 现有配置不是合法 JSON,已备份并不改写:' + e.message); cfg = null; }
+        const raw = fs.readFileSync(cpath, 'utf8');
+        if (raw.trim() === '') {
+          // Cursor 打开过 MCP 设置界面会创建空文件:视为「无已有配置」,正常写入
+          say('   (检测到空文件,视为无已有配置)');
+        } else {
+          try { cfg = JSON.parse(raw); }
+          catch (e) {
+            fs.copyFileSync(cpath, cpath + '.bak');
+            say('   ⚠ 现有配置不是合法 JSON(已备份为 .bak,但为安全不改写;修复后重跑 --install):' + e.message);
+            cfg = null;
+          }
+        }
         if (cfg) fs.copyFileSync(cpath, cpath + '.bak');
       } else {
         fs.mkdirSync(path.dirname(cpath), { recursive: true });
@@ -258,7 +271,7 @@ function install(cli) {
       if (cfg) {
         cfg.mcpServers = Object.assign({}, cfg.mcpServers, { clipshot: snippet });
         fs.writeFileSync(cpath, JSON.stringify(cfg, null, 2));
-        say('   ✔ 已合并写入(原文件备份为 .bak;重启 Cursor 生效)');
+        say('   ✔ 已合并写入(原文件已备份为 .bak;重启 Cursor 生效)');
       }
     }
   } else {

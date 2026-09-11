@@ -206,6 +206,33 @@ assert.ok(instOut.includes('[dry-run]'), 'dry-run 应有标记');
 assert.ok(instOut.includes('mcp_servers.clipshot'), '应打印 Codex 片段');
 assert.ok(!fs.existsSync(path.join(fakeHome, '.cursor', 'mcp.json')), 'dry-run 不得写盘');
 
+// 11) --install(非 dry)遇 Cursor 空 mcp.json:视为无配置,正常写入(用户实测暴露的 bug)
+fs.mkdirSync(path.join(fakeHome, '.cursor'), { recursive: true });
+fs.writeFileSync(path.join(fakeHome, '.cursor', 'mcp.json'), '  '); // Cursor 设置界面创建的空文件
+const inst2 = spawn(process.execPath, [MCP, '--install', '--port', String(PORT + 2)],
+  { stdio: ['pipe', 'pipe', 'pipe'], env: { ...ENV, HOME: fakeHome, CLIPSHOT_SKIP_CLAUDE: '1' } });
+let inst2Out = '';
+inst2.stdout.on('data', (d) => { inst2Out += d; });
+inst2.stderr.on('data', () => {});
+const inst2Code = await new Promise(res => inst2.on('close', res));
+assert.equal(inst2Code, 0);
+assert.ok(inst2Out.includes('视为无已有配置'), '空文件应被识别,实际输出:\n' + inst2Out);
+assert.ok(inst2Out.includes('✔ 自检通过'));
+const writtenCfg = JSON.parse(fs.readFileSync(path.join(fakeHome, '.cursor', 'mcp.json'), 'utf8'));
+assert.ok(writtenCfg.mcpServers.clipshot.command);
+assert.ok(writtenCfg.mcpServers.clipshot.args[0].endsWith('bridge/mcp.mjs'));
+assert.ok(fs.existsSync(path.join(fakeHome, '.cursor', 'mcp.json.bak')));
+// 再跑一次:非空合法 JSON → 合并且保留既有 server
+fs.writeFileSync(path.join(fakeHome, '.cursor', 'mcp.json'),
+  JSON.stringify({ mcpServers: { other: { command: 'x' } } }));
+const inst3 = spawn(process.execPath, [MCP, '--install', '--port', String(PORT + 3)],
+  { stdio: ['pipe', 'pipe', 'pipe'], env: { ...ENV, HOME: fakeHome, CLIPSHOT_SKIP_CLAUDE: '1' } });
+inst3.stdout.resume(); inst3.stderr.resume();
+await new Promise(res => inst3.on('close', res));
+const merged = JSON.parse(fs.readFileSync(path.join(fakeHome, '.cursor', 'mcp.json'), 'utf8'));
+assert.ok(merged.mcpServers.other, '已有其它 MCP 服务器必须保留');
+assert.ok(merged.mcpServers.clipshot, 'clipshot 条目应已合并写入');
+
 /* ---------------- 清理 ---------------- */
 ext.close();
 mcp.child.kill();
