@@ -6,7 +6,8 @@
 ## 环境约束(最高优先级)
 
 - 开发机无浏览器,**任何行为验证都依赖用户本地 Chrome 实测后反馈**,你只能自证静态正确。
-- 门禁:`bash tests/run-all.sh`(语法 + manifest + geom 单测 + 协议防漂移 + 版本一致性),CI 同款。**commit 前必须全绿,没有例外。**
+- 门禁:`bash tests/run-all.sh`(语法 + manifest + geom 单测 + 协议防漂移 + 版本一致性
+  + relay 全链路集成测试),CI 同款。**commit 前必须全绿,没有例外。**
 - 坐标系/捕获类疑难的排障回路:用户在问题页面点面板「诊断当前页面」→ 回传 JSON → 回填 `tests/geom.test.mjs` 与 `docs/CDP与坐标系笔记.md`。**没验证过的结论不写进权威文档,标 pending。**
 
 ## 纪律
@@ -25,6 +26,7 @@
 | 任务 | 先读 |
 |---|---|
 | 新功能立项/查历史提案 | `docs/proposals/`(P编号-标题.md,状态表在头部) |
+| Agent 桥接/relay 相关 | `docs/proposals/P001…`(合同)+ `docs/架构说明.md`#Agent桥接 + `docs/Agent接入指南.md`(用户向) |
 | 增改消息/协议 | `common/messages.js`(权威表)+ `docs/架构说明.md` |
 | 捕获/CDP/坐标系问题 | `docs/CDP与坐标系笔记.md`(实测结论优先于一切文档描述) |
 | 功能/UI 行为 | `docs/路线图与开发日志.md`(现状与验收)+ 对应页面源码 |
