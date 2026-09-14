@@ -17,7 +17,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   const marqueeWaiters = new Map();
 
   const MAX_CONCURRENT = 3;
-  const TOTAL_TIMEOUT = 180000;   // 单作业最长 3 分钟
+  const TOTAL_TIMEOUT = 300000;   // 单作业最长 5 分钟(v0.4.5:15+ 段的超长文档需要)
   const MARQUEE_WINDOW = 30000;   // 框选等待窗口
   const SCROLL_TIMEOUT = 75000;   // 滚动阶段兜底超时(content 侧自身 60s)
   const CANVAS_MAX_PX = 32767;    // 浏览器 canvas 单边上限(近似)
@@ -287,6 +287,26 @@ globalThis.ClipShot = globalThis.ClipShot || {};
         await hideFixedRound(job);
       }
 
+      // v0.4.5:预判是否会走分段——会,则把自动滚动放在「拍摄视口」下预热。
+      // 飞书类虚拟列表的块高估算随视口配置变化:在 934px 视口预热、却到 4000px
+      // 视口拍摄,高度不收敛 → 相邻段内容涌动 → 重复拼接(用户实测)。
+      // 预热视口=拍摄视口后,懒加载触发、高度收敛、内容预渲染一次完成,步数还更少。
+      const dpr = Math.max(1, Math.min(3, (cm && cm.dpr) || 1));
+      const AREA_CAP = 60 * 1024 * 1024; // 单次仿真视口最大设备像素面积
+      const capW0 = Math.max(1, Math.round((cm && cm.vw) || 1));
+      const capH0 = Math.max(1, Math.round(
+        (cm && cm.scroller === 'internal' && cm.scrollerH > 0) ? cm.scrollerH : ((cm && cm.docH) || 1)));
+      let preWarmed = false;
+      if (CS.geom.pickEmulationScale(capW0, capH0, dpr, AREA_CAP) === 0) {
+        const baseH = Math.max(500, Math.min(s.chunkHeight, Math.floor(s.maxPartDeviceH / dpr)));
+        try {
+          await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
+            width: capW0, height: baseH, deviceScaleFactor: dpr, mobile: false
+          }, 5000);
+          preWarmed = true;
+        } catch (e) { /* 预热失败不阻断,runSegmented 会自做暖机遍历 */ }
+      }
+
       phase(job, 'scroll', 15);
       abortCheck(job);
       const scrollInfo = await runAutoScroll(job, s);
@@ -335,10 +355,8 @@ globalThis.ClipShot = globalThis.ClipShot || {};
 
       phase(job, 'capture', 70);
       abortCheck(job);
-      const dpr = Math.max(1, Math.min(3, (cm && cm.dpr) || 1));
       let segments = null;
       let pathNote = '';
-      const AREA_CAP = 60 * 1024 * 1024; // 单次仿真视口最大设备像素面积
 
       // ② 整幅优先(P003):面积超上限时先自动降尺度整幅(下限 1×,不再直接跳分段)。
       //    「一张完整图」优先于「最多清晰度」——对识图与预览都是正确取舍。
@@ -413,7 +431,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
 
       // ④ 分段兜底:段高受单图上限(maxPartDeviceH)自动收敛;总长受 capH 闸门约束
       if (!segments) {
-        segments = await runSegmented(job, capW, capH, dpr, s);
+        segments = await runSegmented(job, capW, capH, dpr, s, preWarmed);
         pathNote = `页面超出浏览器单张捕获上限,已分 ${segments.length} 段拍摄;预览与下载为合成后的单张长图(Agent 返回 ${segments.length} 个分段文件,按序即整页)`;
       }
       if (pathNote) notes.unshift(pathNote);
@@ -514,7 +532,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
    * - 滚动后校验 applied 与目标一致,钳制(触底)时收缩段高防与前段重叠;
    * - 每段截图前等渲染稳定(飞书文档类虚拟列表渲染新窗口需要时间)。
    */
-  async function runSegmented(job, capW, limitH, dpr, s) {
+  async function runSegmented(job, capW, limitH, dpr, s, preWarmed) {
     // 分段模式强制隐藏固定元素,否则每段重复绘制 fixed/sticky
     if (!job.hideFixedApplied) {
       phase(job, 'hideFixed', 65);
@@ -524,9 +542,47 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     const segments = [];
     // P003 单图上限:段高收敛到 maxPartDeviceH/dpr,保证每段远低于画布/纹理限制
     const baseH = Math.max(500, Math.min(s.chunkHeight, Math.floor(s.maxPartDeviceH / dpr)));
+
+    // v0.4.5 关键:仿真视口贯穿整个分段流程,探测/滚动/拍摄同一配置。
+    // 逐段「清除→重建」会让虚拟列表反复重排(934↔4000 横跳),内容在固定
+    // scrollTop 下涌动 → 相邻段重叠 → 用户实测的「中间重复拼接好几次」。
+    let emuKey = '';
+    const setEmu = async (hCss, k) => {
+      const height = Math.max(1, Math.round(hCss * k));
+      const key = height + '@' + k;
+      if (key === emuKey) return; // 同配置不重复 resize,避免无谓重排
+      await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
+        width: capW, height, deviceScaleFactor: dpr * k, mobile: false
+      }, 5000);
+      emuKey = key;
+    };
+
+    // 暖机遍历(仅当调用方未预热):在拍摄视口下走一遍全文,让虚拟列表把
+    // 估算高度全部换成实测高度(收敛),再回顶开始正式分段
+    if (!preWarmed) {
+      try {
+        await setEmu(baseH, 1);
+        let y = 0;
+        for (let g = 0; g < 100; g++) {
+          abortCheck(job);
+          const rs = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 1500 }, 5000).catch(() => null);
+          const H = rs && rs.docH > 0 ? rs.docH : limitH;
+          if (y >= H) break;
+          await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y }, 4000).catch(() => {});
+          await CS.util.sleep(120);
+          y += baseH;
+        }
+        await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: 0 }, 4000).catch(() => {});
+        await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 2000 }, 5000).catch(() => {});
+      } catch (e) {
+        if (job.abortCode) throw mkErr(job.abortCode);
+      }
+    }
+
     let pos = 0, totalH = Infinity, iter = 0, consecutiveFail = 0;
     while (iter++ < 200) {
       abortCheck(job);
+      // 探测在当前仿真配置下进行(与拍摄同视口,高度口径一致)
       const probe = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 2500 }, 6000).catch(() => null);
       if (probe && probe.docH > 0) totalH = probe.docH;
       const stopAt = Math.min(totalH, limitH); // 总长闸门同样约束分段
@@ -536,27 +592,19 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       for (let attempt = 0; attempt < 2 && !b64; attempt++) {
         const k = attempt === 0 ? 1 : 0.5; // 重试降分辨率
         try {
-          await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
-            width: capW, height: Math.max(1, Math.round(h * k)),
-            deviceScaleFactor: dpr * k, mobile: false
-          }, 5000);
+          await setEmu(h, k);
           const st = await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: pos }, 4000);
           applied = st && typeof st.applied === 'number' ? st.applied : pos;
           // 触底钳制保护:实际可滚位置不足时,把段高收缩到剩余内容,防与前段重叠
           if (totalH !== Infinity && applied + h > totalH + 2) {
             h = Math.max(1, Math.ceil(totalH - applied));
-            await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
-              width: capW, height: Math.max(1, Math.round(h * k)),
-              deviceScaleFactor: dpr * k, mobile: false
-            }, 5000);
+            await setEmu(h, k);
           }
           await CS.util.sleep(120);
           await CS.network.waitForIdle(job.tabId, 250, 1500);
           // 等虚拟列表把本段窗口渲染完(占位块 → 真实内容)
           await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 2500 }, 6000).catch(() => {});
-          // P003.1 截图前复核滚动位置:虚拟列表在 resize/重渲染中会把 scrollTop 漂走
-          //(最坏弹回 0 → 末段截到「头部」拼进结尾,即用户实测的末段错图)。
-          // 前跳=会丢内容 → 本段作废重试;回缩=布局收缩 → 按实测收缩段高防重叠。
+          // v0.4.1 截图前复核滚动位置:前跳(丢内容)重试;回缩(布局收缩)收缩段高防重叠
           const ra = await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: applied }, 4000).catch(() => null);
           const finalApplied = ra && typeof ra.applied === 'number' ? ra.applied : applied;
           if (finalApplied > applied + 4) {
@@ -566,10 +614,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
             const probe2 = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 1200 }, 4000).catch(() => null);
             const freshH = probe2 && probe2.docH > 0 ? probe2.docH : totalH;
             h = Math.max(1, Math.min(h, Math.ceil(freshH - finalApplied)));
-            await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
-              width: capW, height: Math.max(1, Math.round(h * k)),
-              deviceScaleFactor: dpr * k, mobile: false
-            }, 5000);
+            await setEmu(h, k);
             await CS.util.sleep(100);
             if (freshH !== Infinity) totalH = freshH; // 采信最新实测总高
           }
@@ -578,8 +623,6 @@ globalThis.ClipShot = globalThis.ClipShot || {};
           if (CS.geom.aspectOk(sizeFromB64(cand), capW, h, 0.08)) b64 = cand;
         } catch (e) {
           if (e.clipshotCode === ERR.USER_CANCELED_BANNER || job.abortCode) throw e;
-        } finally {
-          await clearViewportEmulation(job.tabId);
         }
         if (!b64) await CS.util.sleep(400);
       }
@@ -598,6 +641,8 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     // 总内存保护
     const total = segments.reduce((n, x) => n + x.b64.length, 0);
     if (total > 200 * 1024 * 1024) throw mkErr(ERR.MEMORY_LIMIT);
+    await clearViewportEmulation(job.tabId); // 循环结束才统一清除(不再逐段清除/重建)
+    emuKey = '';
     try { await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: 0 }, 4000); } catch (e) { /* noop */ }
     return segments;
   }
@@ -862,7 +907,9 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       await CS.cdp.attach(tabId, 'diag');
       try {
         const raw = await CS.cdp.call(tabId, 'Page.getLayoutMetrics', {}, 5000);
-        return { ok: true, raw, metrics: CS.geom.normalizeMetrics(raw), dpr: cm && cm.dpr };
+        // page:页面侧 METRICS(v0.4.5 起随诊断输出)——getLayoutMetrics 只看得到
+        // document(飞书类页面恒为一屏 934px),虚拟滚动容器的真实高度在这里
+        return { ok: true, raw, metrics: CS.geom.normalizeMetrics(raw), dpr: cm && cm.dpr, page: cm };
       } finally {
         await CS.cdp.detach(tabId);
       }

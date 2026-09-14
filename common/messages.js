@@ -9,7 +9,7 @@
  */
 globalThis.ClipShot = globalThis.ClipShot || {};
 (function (CS) {
-  CS.EXT_VER = '0.4.4';
+  CS.EXT_VER = '0.4.5';
 
   /** 一次性消息类型(request/response) */
   CS.MSG = {
@@ -41,7 +41,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     MARQUEE_RESULT: 'cs/marquee.result',// {x,y,w,h} 视口 CSS px → {ok}
     MARQUEE_CANCEL: 'cs/marquee.cancel',// {reason} → {ok}
     // popup 诊断 → sw
-    DIAG_METRICS: 'cs/diag.metrics', // {tabId} → {ok,raw,metrics,dpr} | {ok:false,error}
+    DIAG_METRICS: 'cs/diag.metrics', // {tabId} → {ok,raw,metrics,dpr,page} | {ok:false,error}(page=容器侧度量)
     // options 查询 Agent 桥接状态 → sw
     BRIDGE_STATE: 'cs/bridge.state' // {} → {ok,connected,enabled,port,lastError,extVer}
   };

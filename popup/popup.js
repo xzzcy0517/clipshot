@@ -31,7 +31,7 @@
     if (activeTabId == null) return notice('未找到当前标签页');
     const r = await chrome.runtime.sendMessage({ type: CS.MSG.DIAG_METRICS, tabId: activeTabId });
     if (!r || !r.ok) return notice('诊断失败:' + CS.errText((r && r.error) || CS.ERR.UNKNOWN));
-    const text = JSON.stringify({ ua: navigator.userAgent, dpr: r.dpr, raw: r.raw, normalized: r.metrics }, null, 2);
+    const text = JSON.stringify({ ua: navigator.userAgent, dpr: r.dpr, raw: r.raw, normalized: r.metrics, page: r.page }, null, 2);
     try {
       await navigator.clipboard.writeText(text);
       notice('诊断 JSON 已复制到剪贴板,可直接粘贴发给开发者');
