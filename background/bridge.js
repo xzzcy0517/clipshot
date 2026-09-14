@@ -218,6 +218,18 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       extVer: CS.EXT_VER
     };
   };
+  /** sw 内部:带超时的 tabs.sendMessage(transport 失败一律归一为 CONTENT_DEAD) */
+  async function sendToTab(tabId, msg, ms) {
+    try {
+      return await CS.cdp.withTimeout(chrome.tabs.sendMessage(tabId, msg), ms || 5000, ERR.CONTENT_DEAD);
+    } catch (e) {
+      if (e && e.clipshotCode) throw e;
+      const err = new Error('content unreachable');
+      err.clipshotCode = ERR.CONTENT_DEAD;
+      throw err;
+    }
+  }
+
   // P005:agent.js 复用目标解析与带超时消息通道
   bridge.resolveTarget = resolveTarget;
   bridge.sendToTab = sendToTab;

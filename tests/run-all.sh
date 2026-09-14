@@ -9,6 +9,7 @@ find . \( -path ./.git -o -path ./node_modules \) -prune -o -name '*.js' -print0
 
 echo "── 测试"
 node tests/manifest.test.mjs
+node tests/sw-boot.test.mjs
 node tests/geom.test.mjs
 node tests/protocol.test.mjs
 node tests/ws-relay.test.mjs
