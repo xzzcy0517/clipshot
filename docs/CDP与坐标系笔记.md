@@ -73,6 +73,10 @@ dpr **不**取自 CDP:取 content 的 `window.devicePixelRatio`(即 surface 输�
   - 仿真宽度用 `window.innerWidth`(含滚动条的布局宽度),避免滚动条消失引发
     全文重排——重排即错缝;
   - 分段范围不能预切:动态页面高度在捕获过程中变化,要每轮重测、按 applied 推进。
+  - **v0.4.1 教训:虚拟列表在仿真 resize/重渲染期间会漂移容器 scrollTop(最坏弹回 0)**。
+    任何「滚动定位 → 等待渲染稳定 → 截图」的流程,必须在**截图前一刻复核并锁定位置**
+    (重发 SCROLL_TO 读回 applied):前跳=会丢内容→本段作废重试;回缩=布局收缩→
+    按重测总高收缩段高防重叠。滚动后立即读一次 applied 是不够的——等待期正是漂移窗口。
 - 副作用:视口仿真期间页面按放大视口重排(如 100vh 元素会变高),fixed 元素会
   粘在巨大视口顶部——隐藏固定元素选项在此模式下尤为重要;结束必须
   `clearDeviceMetricsOverride`(runFull finally 有双保险)。

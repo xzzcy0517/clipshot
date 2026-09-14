@@ -373,6 +373,8 @@ globalThis.ClipShot = globalThis.ClipShot || {};
               rs = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 4000 }, 8000).catch(() => null);
             }
           }
+          // P003.1:截图前重新归零(仿真 resize/重渲染可能把滚动位置漂走,漂了就缺头部)
+          try { await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: 0 }, 3000); } catch (e) { /* noop */ }
           abortCheck(job);
           const b64 = await capturePageScreenshot(job.tabId, captureOpts(s), 60000);
           const complete = !rs || rs.docH <= capH + 4;
@@ -552,6 +554,26 @@ globalThis.ClipShot = globalThis.ClipShot || {};
           await CS.network.waitForIdle(job.tabId, 250, 1500);
           // 等虚拟列表把本段窗口渲染完(占位块 → 真实内容)
           await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 2500 }, 6000).catch(() => {});
+          // P003.1 截图前复核滚动位置:虚拟列表在 resize/重渲染中会把 scrollTop 漂走
+          //(最坏弹回 0 → 末段截到「头部」拼进结尾,即用户实测的末段错图)。
+          // 前跳=会丢内容 → 本段作废重试;回缩=布局收缩 → 按实测收缩段高防重叠。
+          const ra = await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: applied }, 4000).catch(() => null);
+          const finalApplied = ra && typeof ra.applied === 'number' ? ra.applied : applied;
+          if (finalApplied > applied + 4) {
+            throw mkErr(ERR.SCROLL_FAILED); // 向前漂移,重试本段
+          }
+          if (finalApplied < applied - 2) {
+            const probe2 = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 1200 }, 4000).catch(() => null);
+            const freshH = probe2 && probe2.docH > 0 ? probe2.docH : totalH;
+            h = Math.max(1, Math.min(h, Math.ceil(freshH - finalApplied)));
+            await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
+              width: capW, height: Math.max(1, Math.round(h * k)),
+              deviceScaleFactor: dpr * k, mobile: false
+            }, 5000);
+            await CS.util.sleep(100);
+            if (freshH !== Infinity) totalH = freshH; // 采信最新实测总高
+          }
+          applied = finalApplied;
           const cand = await capturePageScreenshot(job.tabId, captureOpts(s), 30000);
           if (CS.geom.aspectOk(sizeFromB64(cand), capW, h, 0.08)) b64 = cand;
         } catch (e) {
@@ -792,6 +814,8 @@ globalThis.ClipShot = globalThis.ClipShot || {};
         if (m && m.scroller === 'internal' && rs && rs.clientH > 0 && rs.clientH < rect.height * 0.9) {
           throw mkErr(ERR.FIXED_CONTAINER);
         }
+        // P003.1:截图前重锁元素位置(重渲染可能漂移滚动)
+        await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: rect.y }, 3000).catch(() => {});
         const band = await capturePageScreenshot(job.tabId, captureOpts(s), 15000);
         // 条带截图 = 整页宽 × 元素高,按元素 x 偏移裁出精确区域
         const dataUrl = 'data:image/' + (s.format === 'jpeg' ? 'jpeg' : 'png') + ';base64,' + band;
