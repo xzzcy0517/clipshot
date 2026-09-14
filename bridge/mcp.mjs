@@ -9,6 +9,8 @@
  * - 工具(克制三件套,仅回文件路径不内联图片——用户决策):
  *   clipshot_screenshot / clipshot_health / clipshot_tabs
  * - 一键安装:node bridge/mcp.mjs --install [--dry-run]
+ * - v0.5.0(P004):零配置——无 token、端口 8790–8795 自动发现;skill 说明书
+ *   维护在仓库 skills/clipshot-screenshot/,由各 Agent 宿主自行取用,不做自动分发。
  */
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -63,31 +65,29 @@ const TOOLS = [
 
 async function setupBackend(cli) {
   const cfg = loadOrCreateConfig({ port: cli.port });
-  const base = `http://127.0.0.1:${cfg.port}`;
-  try {
-    const relay = startRelay({ port: cfg.port, token: cfg.token, outDir: cfg.out });
-    await relay.listen(cfg.port);
-    log(`relay 已内嵌启动: ${base}(输出目录 ${cfg.out})`);
-    return { mode: 'relay', base, token: cfg.token, outDir: cfg.out, cfg, relay };
-  } catch (e) {
-    if (e && e.code !== 'EADDRINUSE') throw e;
-    // 端口被占:可能是手动 relay 或另一宿主的 mcp → 探测后降级为客户端
+  const start = cfg.port || 8790;
+  // P004 先探测后自建:范围内已有活 relay(手动 relay / 另一宿主的 mcp)就加入它,
+  // 多宿主共享同一座桥、扩展只连一条 WS;确认没有才内嵌启动。
+  for (let p = start; p < start + 6; p++) {
     try {
-      const r = await fetch(base + '/v1/health', { signal: AbortSignal.timeout(3000) });
+      const r = await fetch(`http://127.0.0.1:${p}/v1/health`, { signal: AbortSignal.timeout(1500) });
       const j = await r.json();
       if (j && j.ok) {
-        log(`端口 ${cfg.port} 已有 relay 在跑(版本 ${j.relay && j.relay.version}),本进程降级为客户端模式`);
-        return { mode: 'client', base, token: cfg.token, outDir: cfg.out, cfg, relay: null };
+        log(`端口 ${p} 已有 relay(版本 ${j.relay && j.relay.version}),本进程降级为客户端模式`);
+        return { mode: 'client', base: `http://127.0.0.1:${p}`, outDir: cfg.out, cfg, relay: null };
       }
-    } catch (e2) { /* 探测失败,落到下面报错 */ }
-    throw new Error(`端口 ${cfg.port} 被占用,且不是一个 ClipShot relay。请关闭占用进程或 --port 换端口`);
+    } catch (e) { /* 端口空闲或非 relay,试下一个 */ }
   }
+  const relay = startRelay({ port: start, outDir: cfg.out });
+  const port = await relay.listen(start); // 8790 起自动找空闲端口
+  log(`relay 已内嵌启动: http://127.0.0.1:${port}(输出目录 ${cfg.out})`);
+  return { mode: 'relay', base: `http://127.0.0.1:${port}`, outDir: cfg.out, cfg, relay };
 }
 
 async function api(backend, urlPath, { method = 'GET', body, timeoutMs = 250000 } = {}) {
   const res = await fetch(backend.base + urlPath, {
     method,
-    headers: { 'content-type': 'application/json', 'x-clipshot-token': backend.token },
+    headers: { 'content-type': 'application/json' },
     body: body == null ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs)
   });
@@ -109,7 +109,7 @@ async function callTool(backend, name, args) {
       `扩展: ${ext.connected ? '已连接' : '未连接'}${ext.version ? '(扩展版本 ' + ext.version + ')' : ''}`,
       `截图输出目录: ${backend.outDir}`
     ];
-    if (!ext.connected) lines.push('提示: 打开 Chrome → ClipShot 设置页启用「Agent 桥接」并核对 token;详见 docs/Agent接入指南.md 排错表');
+    if (!ext.connected) lines.push('提示: 打开 Chrome → ClipShot 设置页 → 勾选「启用 Agent 桥接」(v0.5.0 起无需 token);详见 docs/新机器部署指南.md');
     return { content: [{ type: 'text', text: lines.join('\n') }] };
   }
   if (name === 'clipshot_tabs') {
@@ -313,18 +313,14 @@ function install(cli) {
         clearTimeout(timer);
         say(`   ✔ 自检通过:serverInfo=clipshot v${RELAY_VERSION},工具 ${m.result.tools.length} 个`);
         child.kill();
-        // 新机器场景:token 是唯一需要人工搬运的信息,必须显式打出来
-        let cfg = {};
-        try { cfg = loadOrCreateConfig({ port: cli.port }); } catch (e) { /* noop */ }
-        say('\n══════════ 安装完成,还差最后两步(在浏览器里) ══════════');
+        say('\n══════════ 安装完成,只差浏览器里两下点击(v0.5.0 起无需 token) ══════════');
         say('① chrome://extensions → 开启右上角「开发者模式」→「加载已解压的扩展程序」');
         say(`   选择仓库目录(含 manifest.json 的那层):${path.dirname(path.dirname(MCP_PATH))}`);
-        say('② 点工具栏 ClipShot 图标 → 打开设置页 →「Agent 桥接」:勾选启用,');
-        say('   粘贴下面的 token,连接状态变「● 已连接」即成功:');
-        say('');
-        say(`   ${cfg.token || '(读取失败,重跑本命令查看)'}`);
-        say('');
+        say('② 点工具栏 ClipShot 图标 → 设置页 →「Agent 桥接」→ 勾选启用;');
+        say('   等 30 秒内状态变「● 已连接 relay」即全部就绪(端口自动发现,无需任何填写)。');
         say('然后重启 Cursor(Cmd+Q),对话里说「用 clipshot 查一下桥状态」验证。');
+        say('其它支持 Agent Skill 的宿主(Claude Code 等):仓库 skills/clipshot-screenshot/');
+        say('目录即是现成的 skill,复制到对应宿主的 skills 目录即可,无需 MCP。');
         say('完整说明与排错见 docs/新机器部署指南.md');
         process.exit(0);
       }

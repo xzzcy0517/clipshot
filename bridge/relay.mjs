@@ -5,8 +5,11 @@
  * 对 Agent 暴露 http://127.0.0.1:<port>(需 token),对扩展暴露 ws://127.0.0.1:<port>/bridge。
  * WS 服务器为手写最小 RFC6455 实现(握手 + 帧编解码),协议与 tests/ws-relay.test.mjs 锁死。
  *
- * 启动:node bridge/relay.mjs [--port 8790] [--out ~/clipshot-out] [--reset-token]
- * 首次启动生成随机 token,存 ~/.clipshot/relay.json;把它填进扩展设置页「Agent 桥接」。
+ * 启动:node bridge/relay.mjs [--port 8790] [--out ~/clipshot-out]
+ * v0.5.0 起零配置(P004):无 token、端口在 8790–8795 自动找。
+ * 防滥用改由协议规则承担:只绑 127.0.0.1 + POST 强制 application/json
+ * (浏览器跨源必触发 CORS 预检,而 relay 永不返回 CORS 头 → 预检失败,
+ * 恶意网页发不进指令;本机进程本就无需设防)。
  */
 import http from 'node:http';
 import crypto from 'node:crypto';
@@ -15,8 +18,10 @@ import path from 'node:path';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 
-export const RELAY_VERSION = '0.4.0';
-const DEFAULT_PORT = 8790;
+export const RELAY_VERSION = '0.5.0';
+export const PORT_START = 8790;
+export const PORT_SCAN = 6; // 8790–8795
+const DEFAULT_PORT = PORT_START;
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const PING_INTERVAL_MS = 20000;
 const CMD_TIMEOUT_SIMPLE = 15000;
@@ -92,14 +97,15 @@ export function decodeFrames(buf, requireMask = true) {
 
 function ensureDir(d) { fs.mkdirSync(d, { recursive: true }); }
 
-export function loadOrCreateConfig({ port, out, resetToken }) {
+export function loadOrCreateConfig({ port, out } = {}) {
+  // 仅存展示/排错用信息(v0.5.0 起无 token;旧文件里的 token 字段直接忽略)
   // CLIPSHOT_CONFIG_DIR / CLIPSHOT_OUT_DIR 仅供测试与便携部署覆盖,默认用户主目录
   const dir = process.env.CLIPSHOT_CONFIG_DIR || path.join(os.homedir(), '.clipshot');
   ensureDir(dir);
   const file = path.join(dir, 'relay.json');
   let cfg = {};
   try { cfg = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { cfg = {}; }
-  if (resetToken || !cfg.token) cfg.token = crypto.randomBytes(16).toString('hex');
+  delete cfg.token;
   cfg.port = port || cfg.port || DEFAULT_PORT;
   cfg.out = out || process.env.CLIPSHOT_OUT_DIR || cfg.out || path.join(os.homedir(), 'clipshot-out');
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2));
@@ -126,7 +132,7 @@ function uniquePath(dir, name) {
 
 /* ================= relay 主体 ================= */
 
-export function startRelay({ port = DEFAULT_PORT, token, outDir }) {
+export function startRelay({ port = DEFAULT_PORT, outDir }) {
   ensureDir(outDir);
   const pending = new Map(); // cmdId → {res, kind, timer, chunks, meta, notes}
   let ext = null; // {sock, conn, hello, version, since}
@@ -155,16 +161,10 @@ export function startRelay({ port = DEFAULT_PORT, token, outDir }) {
     return Buffer.concat(parts).toString('utf8');
   }
 
-  function safeEq(a, b) {
-    const ba = Buffer.from(String(a)); const bb = Buffer.from(String(b));
-    return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
-  }
-
-  function tokenOk(req) {
-    const got = req.headers['x-clipshot-token'] ||
-      (req.headers.authorization || '').replace(/^Bearer\s+/i, '') ||
-      new URL(req.url, 'http://x').searchParams.get('token');
-    return typeof got === 'string' && got.length > 0 && safeEq(got, token);
+  // v0.5.0 起无 token(P004 §2):防线=只绑 127.0.0.1 + POST 强制 JSON 预检 +
+  // 永不返回 CORS 头(relay 从不设置 Access-Control-*,浏览器跨源预检必败)。
+  function wantsJson(req) {
+    return /application\/json/i.test(String(req.headers['content-type'] || ''));
   }
 
   function extConnected() { return !!(ext && ext.hello); }
@@ -180,9 +180,10 @@ export function startRelay({ port = DEFAULT_PORT, token, outDir }) {
   async function handleHttp(req, res) {
     const u = new URL(req.url, 'http://127.0.0.1');
     if (u.pathname === '/v1/health' && req.method === 'GET') {
+      const addr = httpServer.address();
       return json(res, 200, {
         ok: true,
-        relay: { version: RELAY_VERSION, port, outDir, pending: pending.size },
+        relay: { version: RELAY_VERSION, port: (addr && addr.port) || port, outDir, pending: pending.size },
         extension: {
           connected: extConnected(),
           version: ext && ext.version || null,
@@ -190,13 +191,15 @@ export function startRelay({ port = DEFAULT_PORT, token, outDir }) {
         }
       });
     }
-    if (!tokenOk(req)) {
-      return json(res, 401, { ok: false, error: 'BAD_TOKEN', message: '缺少或错误的 X-ClipShot-Token(relay 启动时打印的令牌)' });
+    // 协议闸门先于桥状态:POST 一律要求 JSON 体(浏览器跨源因此必过 CORS 预检,
+    // 而 relay 永不发 CORS 头 → 恶意网页无法驱动桥;本机 curl -d JSON 自动带该头)
+    if (req.method === 'POST' && !wantsJson(req)) {
+      return json(res, 415, { ok: false, error: 'JSON_REQUIRED', message: 'POST 需 Content-Type: application/json(curl -d 传 JSON 即自动携带)' });
     }
     if (!extConnected()) {
       return json(res, 503, {
         ok: false, error: 'EXTENSION_OFFLINE',
-        message: 'relay 已运行但浏览器扩展未连接:打开 ClipShot 设置页启用「Agent 桥接」、确认 token 一致;仍不行就重启 Chrome 或点一下扩展图标唤醒'
+        message: 'relay 已运行但浏览器扩展未连接:打开 ClipShot 设置页勾选「启用 Agent 桥接」;仍不行就重启 Chrome 或点一下扩展图标唤醒'
       });
     }
 
@@ -234,12 +237,7 @@ export function startRelay({ port = DEFAULT_PORT, token, outDir }) {
     if (!m || typeof m !== 'object') return;
     switch (m.t) {
       case 'hello':
-        if (m.token !== token) {
-          ext.hello = false;
-          ext.conn.sendText(JSON.stringify({ t: 'hello-ack', ok: false, reason: 'auth' }));
-          setTimeout(() => ext && ext.sock.destroy(), 500);
-          return;
-        }
+        // v0.5.0:无 token 校验(旧扩展 hello 带的 token 字段直接忽略)
         ext.hello = true;
         ext.version = m.version || null;
         ext.since = Date.now();
@@ -381,14 +379,28 @@ export function startRelay({ port = DEFAULT_PORT, token, outDir }) {
   if (pingTimer.unref) pingTimer.unref();
 
   return {
-    listen(p) {
-      return new Promise((resolve, reject) => {
-        httpServer.once('error', reject);
-        httpServer.listen(p || port, '127.0.0.1', () => {
-          httpServer.removeListener('error', reject);
-          resolve(httpServer.address().port);
-        });
-      });
+    // v0.5.0 端口自扫:从 p||port 起试 PORT_SCAN 个,占用换下一个(EADDRINUSE 不再需要用户处理)
+    async listen(p) {
+      const start = p || port;
+      let lastErr = null;
+      for (let cand = start; cand < start + PORT_SCAN; cand++) {
+        try {
+          await new Promise((resolve, reject) => {
+            httpServer.once('error', reject);
+            httpServer.listen(cand, '127.0.0.1', () => {
+              httpServer.removeListener('error', reject);
+              resolve();
+            });
+          });
+          return httpServer.address().port;
+        } catch (e) {
+          lastErr = e;
+          if (!e || e.code !== 'EADDRINUSE') throw e;
+        }
+      }
+      throw (lastErr && lastErr.code === 'EADDRINUSE')
+        ? new Error(`端口 ${start}–${start + PORT_SCAN - 1} 全部被占用`)
+        : lastErr;
     },
     close() {
       clearInterval(pingTimer);
@@ -407,7 +419,6 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--port') out.port = Number(argv[++i]) | 0;
     else if (argv[i] === '--out') out.out = path.resolve(argv[++i]);
-    else if (argv[i] === '--reset-token') out.resetToken = true;
   }
   return out;
 }
@@ -415,31 +426,27 @@ function parseArgs(argv) {
 async function main() {
   const cli = parseArgs(process.argv.slice(2));
   const cfg = loadOrCreateConfig(cli);
-  const relay = startRelay({ port: cfg.port, token: cfg.token, outDir: cfg.out });
+  const relay = startRelay({ port: cfg.port, outDir: cfg.out });
   const port = await relay.listen().catch((e) => {
-    console.error('[ClipShot 桥] 启动失败:' + e.message + (e.code === 'EADDRINUSE'
-      ? '\n  端口 ' + cfg.port + ' 被占用——先关掉旧的 relay 进程,或用 --port 换一个端口' : ''));
+    console.error('[ClipShot 桥] 启动失败:' + e.message);
     process.exit(1);
   });
   console.log('┌─────────────────────────────────────────────────────');
-  console.log('│ ClipShot Agent 桥 v' + RELAY_VERSION + ' 已启动');
+  console.log('│ ClipShot Agent 桥 v' + RELAY_VERSION + ' 已启动(零配置)');
   console.log('│ 地址        http://127.0.0.1:' + port);
-  console.log('│ token       ' + cfg.token);
-  console.log('│             ↑ 粘贴到 ClipShot 设置页「Agent 桥接」');
   console.log('│ 截图输出    ' + cfg.out);
   console.log('│ 配置存于    ' + cfg.file);
-  console.log('│ 用法与排错  docs/Agent接入指南.md');
+  console.log('│ 扩展侧只需:设置页勾选「启用 Agent 桥接」(端口自动发现)');
+  console.log('│ 用法与排错  docs/新机器部署指南.md');
   console.log('└─────────────────────────────────────────────────────');
-  if (cfg.token && relay) {
-    setInterval(async () => {
-      try {
-        const r = await fetch('http://127.0.0.1:' + port + '/v1/health');
-        const j = await r.json();
-        const mark = j.extension && j.extension.connected ? '● 扩展已连接' : '○ 等待扩展连接(设置页启用桥接并核对 token)';
-        process.stdout.write('\r' + mark + '  ' + new Date().toLocaleTimeString() + '   ');
-      } catch (e) { /* ignore */ }
-    }, 5000).unref();
-  }
+  setInterval(async () => {
+    try {
+      const r = await fetch('http://127.0.0.1:' + port + '/v1/health');
+      const j = await r.json();
+      const mark = j.extension && j.extension.connected ? '● 扩展已连接' : '○ 等待扩展连接(设置页勾选启用)';
+      process.stdout.write('\r' + mark + '  ' + new Date().toLocaleTimeString() + '   ');
+    } catch (e) { /* ignore */ }
+  }, 5000).unref();
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

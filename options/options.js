@@ -30,20 +30,14 @@
     }
   }
 
-  /* ---------------- Agent 桥接设置 ---------------- */
-  const BKEYS = ['bridgeEnabled', 'bridgePort', 'bridgeToken'];
+  /* ---------------- Agent 桥接设置(v0.5.0 零配置:只剩启用开关 + 状态) ---------------- */
+  const BKEYS = ['bridgeEnabled'];
 
   async function initBridge() {
     const o = await chrome.storage.sync.get(BKEYS);
     $('bridgeEnabled').checked = !!o.bridgeEnabled;
-    $('bridgePort').value = (o.bridgePort | 0) || 8790;
-    $('bridgeToken').value = o.bridgeToken || '';
     $('bridgeEnabled').addEventListener('change', () =>
       CS.saveSettings({ bridgeEnabled: $('bridgeEnabled').checked }));
-    $('bridgePort').addEventListener('change', () =>
-      CS.saveSettings({ bridgePort: Number($('bridgePort').value) || 8790 }));
-    $('bridgeToken').addEventListener('change', () =>
-      CS.saveSettings({ bridgeToken: $('bridgeToken').value.trim() }));
     $('bridge-refresh').addEventListener('click', refreshBridge);
     refreshBridge();
     setInterval(refreshBridge, 2500);
@@ -57,9 +51,9 @@
       if (!r.enabled) { el.textContent = '未启用'; return; }
       if (r.connected) {
         const since = r.since ? new Date(r.since).toLocaleTimeString() : '';
-        el.textContent = '● 已连接 relay(端口 ' + r.port + (since ? ',' + since + ' 起' : '') + ')';
+        el.textContent = '● 已连接 relay(端口 ' + (r.port || '?') + (since ? ',' + since + ' 起' : '') + ')';
       } else {
-        el.textContent = '○ 未连接' + (r.lastError ? ':' + r.lastError : ' —— 先启动 relay 再检查 token');
+        el.textContent = '○ 未连接 —— 请确认 Cursor 已启动(桥由它自动拉起),或按新机器部署指南跑 setup.sh';
       }
     } catch (e) {
       el.textContent = '查询失败:' + ((e && e.message) || e);

@@ -41,21 +41,6 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-/* ---------------- 命令快捷键 ---------------- */
-const COMMAND_MODES = {
-  'capture-full': 'full',
-  'capture-visible': 'visible',
-  'capture-region': 'region'
-};
-chrome.commands.onCommand.addListener(async (command) => {
-  const mode = COMMAND_MODES[command];
-  if (!mode) return;
-  const tab = await getActiveTab();
-  if (!tab) return;
-  const r = await CS.pipeline.startJob(tab.id, mode, {});
-  if (!r.ok) CS.broadcast({ type: MSG.JOB_EVENT, jobId: null, tabId: tab.id, mode, phase: 'failed', pct: 100, text: CS.errText(r.error) });
-});
-
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab || null;

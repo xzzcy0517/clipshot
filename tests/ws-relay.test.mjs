@@ -53,20 +53,18 @@ console.log('✔ WS 编解码/握手 单测');
 
 /* ---------------- 集成测试 ---------------- */
 const PNG1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-const TOKEN = 'test-token-123';
+const PREFERRED = 18880 + Math.floor(Math.random() * 60); // 避开真实 8790–8795 段
 const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clipshot-test-'));
 // 失败/断言抛出也清理,避免断言失败泄漏 /tmp 目录(洁癖收尾发现的 hygiene 问题)
 process.on('exit', () => { try { fs.rmSync(outDir, { recursive: true, force: true }); } catch (e) { /* noop */ } });
-const relay = startRelay({ token: TOKEN, outDir });
-const port = await relay.listen(0);
+const relay = startRelay({ outDir, port: PREFERRED });
+const port = await relay.listen(PREFERRED);
 
-async function httpReq(method, urlPath, { body, token } = {}) {
+async function httpReq(method, urlPath, { body, json = true } = {}) {
   const res = await new Promise((resolve, reject) => {
     const req = http.request(
       { host: '127.0.0.1', port, path: urlPath, method,
-        headers: Object.assign(
-          { 'content-type': 'application/json' },
-          token ? { 'x-clipshot-token': token } : {}) },
+        headers: { 'content-type': json ? 'application/json' : 'text/plain' } },
       resolve);
     req.on('error', reject);
     if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
@@ -82,12 +80,12 @@ let h = await httpReq('GET', '/v1/health');
 assert.equal(h.status, 200);
 assert.equal(h.json.extension.connected, false);
 
-// 2) 无 token → 401;扩展离线 → 503
-assert.equal((await httpReq('POST', '/v1/screenshot', { body: { mode: 'visible' } })).status, 401);
-assert.equal((await httpReq('POST', '/v1/screenshot', { token: TOKEN, body: { mode: 'visible' } })).json.error, 'EXTENSION_OFFLINE');
+// 2) P004 零配置:非 JSON 的 POST 拒绝(浏览器跨源防线);扩展离线 → 503
+assert.equal((await httpReq('POST', '/v1/screenshot', { body: 'mode=full', json: false })).status, 415);
+assert.equal((await httpReq('POST', '/v1/screenshot', { body: { mode: 'visible' } })).json.error, 'EXTENSION_OFFLINE');
 
 // 3) 假扩展:WS 握手 + hello
-function extConnect(token) {
+function extConnect() {
   return new Promise((resolve, reject) => {
     const key = crypto.randomBytes(16).toString('base64');
     const req = http.request({
@@ -129,22 +127,15 @@ function extConnect(token) {
         }),
         close: () => socket.destroy()
       };
-      if (token !== undefined) api.send({ t: 'hello', token, version: '0.3.0-test' });
+      api.send({ t: 'hello', version: '0.5.0-test' }); // P004:hello 无 token
       resolve(api);
     });
   });
 }
 
-// 错误 token 会被拒
-let bad = await extConnect('wrong');
-let ack = await bad.waitMsg((m) => m.t === 'hello-ack');
-assert.equal(ack.ok, false);
-bad.close();
-await new Promise(r => setTimeout(r, 80));
-
-// 正确 token → 连接 → health connected
-const ext = await extConnect(TOKEN);
-ack = await ext.waitMsg((m) => m.t === 'hello-ack');
+// P004:hello 不带 token,直连 → health connected
+const ext = await extConnect();
+const ack = await ext.waitMsg((m) => m.t === 'hello-ack');
 assert.equal(ack.ok, true);
 h = await httpReq('GET', '/v1/health');
 assert.equal(h.json.extension.connected, true);
@@ -177,7 +168,7 @@ function nextCmd(name) {
 nextCmd('tabs').then((cmd) => {
   ext.send({ t: 'reply', id: cmd.id, ok: true, tabs: [{ tabId: 7, url: 'https://e.com', active: true }] });
 });
-const tabs = await httpReq('GET', '/v1/tabs', { token: TOKEN });
+const tabs = await httpReq('GET', '/v1/tabs', {});
 assert.equal(tabs.json.ok, true);
 assert.equal(tabs.json.tabs[0].tabId, 7);
 
@@ -187,7 +178,7 @@ nextCmd('screenshot').then((cmd) => {
   ext.send({ t: 'result', id: cmd.id, ok: true, image: { name: 'shot_test.png', mime: 'image/png', widthPx: 1, heightPx: 1 }, notes: ['测试注记'] });
   ext.send({ t: 'upload', id: cmd.id, seq: 0, b64: PNG1x1, last: true });
 });
-const shot = await httpReq('POST', '/v1/screenshot', { token: TOKEN, body: { mode: 'full' } });
+const shot = await httpReq('POST', '/v1/screenshot', { body: { mode: 'full' } });
 assert.equal(shot.json.ok, true);
 assert.equal(shot.json.notes[0], '测试注记');
 const written = fs.readFileSync(shot.json.image.path);
@@ -199,7 +190,7 @@ nextCmd('screenshot').then((cmd) => {
   ext.send({ t: 'result', id: cmd.id, ok: true, image: { name: 'shot_test.png', mime: 'image/png' } });
   ext.send({ t: 'upload', id: cmd.id, seq: 0, b64: PNG1x1, last: true });
 });
-const shot2 = await httpReq('POST', '/v1/screenshot', { token: TOKEN, body: { mode: 'full' } });
+const shot2 = await httpReq('POST', '/v1/screenshot', { body: { mode: 'full' } });
 assert.equal(shot2.json.ok, true);
 assert.ok(/shot_test-2\.png$/.test(shot2.json.image.path), '应生成不重名文件,实际: ' + shot2.json.image.path);
 
@@ -209,7 +200,7 @@ nextCmd('screenshot').then((cmd) => {
   ext.send({ t: 'upload', id: cmd.id, seq: 0, seg: 0, b64: PNG1x1, last: false });
   ext.send({ t: 'upload', id: cmd.id, seq: 1, seg: 1, b64: PNG1x1, last: true });
 });
-const multi = await httpReq('POST', '/v1/screenshot', { token: TOKEN, body: { mode: 'full' } });
+const multi = await httpReq('POST', '/v1/screenshot', { body: { mode: 'full' } });
 assert.equal(multi.json.ok, true);
 assert.equal(multi.json.image.parts, 2);
 assert.equal(multi.json.image.paths.length, 2);
@@ -222,14 +213,14 @@ assert.equal(multi.json.image.heightPx, null, '多段时 heightPx 不谎报整�
 assert.equal(multi.json.image.path, multi.json.image.paths[0], 'path 向后兼容=第一分段');
 
 // 7) 扩展断开 → 进行中请求收到 EXTENSION_OFFLINE,后续 503
-const inFlight = httpReq('POST', '/v1/screenshot', { token: TOKEN, body: { mode: 'full' } });
+const inFlight = httpReq('POST', '/v1/screenshot', { body: { mode: 'full' } });
 await nextCmd('screenshot');
 ext.close();
 const failRes = await inFlight;
 assert.equal(failRes.json.error, 'EXTENSION_OFFLINE');
-assert.equal((await httpReq('GET', '/v1/tabs', { token: TOKEN })).json.error, 'EXTENSION_OFFLINE');
+assert.equal((await httpReq('GET', '/v1/tabs', {})).json.error, 'EXTENSION_OFFLINE');
 
 relay.close();
 fs.rmSync(outDir, { recursive: true, force: true });
-console.log('✔ relay 集成测试(握手/token/tabs/screenshot 落盘/断开处理)');
+console.log('✔ relay 集成测试(握手/零配置鉴权面/tabs/screenshot 落盘/断开处理)');
 process.exit(0);

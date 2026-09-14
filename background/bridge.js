@@ -1,17 +1,22 @@
 'use strict';
 /**
- * Agent 桥接(P001):SW 内的 WebSocket 客户端,连本地 relay(bridge/relay.mjs)。
- * 收到命令 → 复用 pipeline 静默作业 → 从 imagestore 分块回传 → relay 落盘。
- * 保活:relay 每 20s 发文本 {t:'ping'},SW 收到/回复即重置空闲计时器(官方文档);
- * 断线指数退避重连 + chrome.alarms 'bridge-heart'(30s)兜住 SW 休眠后的唤醒。
+ * Agent 桥接(P001-P1;P004/v0.5.0 起零配置):SW 内的 WebSocket 客户端,连本机 relay。
+ * - 无 token、无端口设置:在 8790–8795 轮询探测(relay 侧同样自动挑空闲端口);
+ *   设置页只剩一个「启用」勾选框。
+ * - 保活:relay 每 20s 文本 {t:'ping'},SW 收/发即重置空闲计时(官方语义);
+ *   断线指数退避重连(每次换下一个端口)+ 'bridge-heart' alarm 30s 唤醒。
+ * - 收到命令 → pipeline 静默作业 → 从 imagestore 分块回传 → relay 落盘。
  */
 globalThis.ClipShot = globalThis.ClipShot || {};
 (function (CS) {
   const { ERR } = CS;
-  const DEFAULT_PORT = 8790;
+  const PORT_START = 8790;
+  const PORT_SCAN = 6;
 
   let ws = null;
-  let cfg = { enabled: false, port: DEFAULT_PORT, token: '' };
+  let cfg = { enabled: false };
+  let scanIdx = 0;
+  let connectedPort = 0;
   let backoff = 1000;
   let reconnectTimer = null;
   let status = { connected: false, helloAck: false, since: null, lastError: null };
@@ -19,12 +24,8 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   const bridge = {};
 
   async function loadCfg() {
-    const o = await chrome.storage.sync.get(['bridgeEnabled', 'bridgePort', 'bridgeToken']);
-    cfg = {
-      enabled: !!o.bridgeEnabled,
-      port: (o.bridgePort | 0) > 0 ? (o.bridgePort | 0) : DEFAULT_PORT,
-      token: String(o.bridgeToken || '')
-    };
+    const o = await chrome.storage.sync.get(['bridgeEnabled']);
+    cfg = { enabled: !!o.bridgeEnabled }; // 旧版本残留的 bridgeToken/bridgePort 键不再读取
   }
 
   function send(obj) {
@@ -32,19 +33,21 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   }
 
   function schedule() {
-    if (reconnectTimer || !cfg.enabled || !cfg.token) return;
+    if (reconnectTimer || !cfg.enabled) return;
     const wait = backoff;
     backoff = Math.min(backoff * 2, 15000);
     reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, wait);
   }
 
   function connect() {
-    if (!cfg.enabled || !cfg.token || ws) return;
+    if (!cfg.enabled || ws) return;
+    const port = PORT_START + (scanIdx % PORT_SCAN);
+    scanIdx++; // 每次尝试换一个端口,一轮扫完自动回到起点
     let sock;
-    try { sock = new WebSocket(`ws://127.0.0.1:${cfg.port}/bridge`); }
-    catch (e) { status.lastError = '无法连接 relay:' + ((e && e.message) || e); schedule(); return; }
+    try { sock = new WebSocket(`ws://127.0.0.1:${port}/bridge`); }
+    catch (e) { status.lastError = '无法连接 relay(端口 ' + port + ')'; schedule(); return; }
     ws = sock;
-    sock.onopen = () => send({ t: 'hello', token: cfg.token, version: CS.EXT_VER });
+    sock.onopen = () => send({ t: 'hello', version: CS.EXT_VER });
     sock.onmessage = (ev) => {
       backoff = 1000;
       let m = null;
@@ -56,7 +59,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       if (ws !== sock) return;
       const wasConnected = status.helloAck;
       ws = null;
-      status.connected = false; status.helloAck = false;
+      status.connected = false; status.helloAck = false; connectedPort = 0;
       if (wasConnected) status.lastError = '与 relay 的连接断开';
       schedule();
     };
@@ -68,12 +71,13 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       case 'hello-ack':
         status.connected = true;
         status.helloAck = !!m.ok;
-        status.since = m.ok ? Date.now() : null;
-        if (!m.ok) {
-          status.lastError = m.reason === 'auth' ? 'token 不匹配(设置页粘贴 relay 启动时打印的令牌)' : 'relay 拒绝了握手';
-          try { ws.close(); } catch (e) { /* noop */ } // 保留 close→schedule 的退避节奏,防 token 错误时刷屏
-        } else {
+        if (m.ok) {
+          status.since = Date.now();
           status.lastError = null;
+          connectedPort = PORT_START + ((scanIdx - 1 + PORT_SCAN * 4) % PORT_SCAN); // 本次握手用的端口
+        } else {
+          status.lastError = 'relay 拒绝了握手(版本过旧?重启桥后重试)';
+          try { ws.close(); } catch (e) { /* noop */ }
         }
         break;
       case 'ping': send({ t: 'pong' }); break;
@@ -160,7 +164,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   function closeSock() {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     if (ws) { try { ws.onclose = null; ws.onmessage = null; ws.onopen = null; ws.close(); } catch (e) { /* noop */ } ws = null; }
-    status.connected = false; status.helloAck = false; status.since = null;
+    status.connected = false; status.helloAck = false; status.since = null; connectedPort = 0;
   }
 
   function ensureHeartAlarm() {
@@ -170,17 +174,16 @@ globalThis.ClipShot = globalThis.ClipShot || {};
 
   bridge.init = async function () {
     await loadCfg();
-    if (cfg.enabled && cfg.token) connect();
+    if (cfg.enabled) connect();
     ensureHeartAlarm();
   };
 
-  /** 设置变更/安装/启动:带新配置重建连接 */
+  /** 设置变更/安装/启动:按新配置重建连接 */
   bridge.reload = async function () {
     closeSock();
     await loadCfg();
-    status.lastError = cfg.enabled && !cfg.token ? '未填写 token' : null;
-    if (cfg.enabled && cfg.token) connect();
-    else if (cfg.enabled) schedule();
+    status.lastError = null;
+    if (cfg.enabled) connect(); // 未启用则静默,等设置变更再 reload
     ensureHeartAlarm();
   };
 
@@ -192,8 +195,9 @@ globalThis.ClipShot = globalThis.ClipShot || {};
 
   bridge.status = function () {
     return {
-      enabled: cfg.enabled, port: cfg.port,
+      enabled: cfg.enabled,
       connected: status.connected && status.helloAck,
+      port: connectedPort || null,
       since: status.since, lastError: status.lastError,
       extVer: CS.EXT_VER
     };

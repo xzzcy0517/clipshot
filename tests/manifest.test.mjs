@@ -32,15 +32,8 @@ for (const f of files) assert.ok(existsSync(join(ROOT, f)), `文件不存在: ${
 assert.equal(m.content_scripts[0].all_frames, false, '不注入 iframe(已知限制)');
 assert.deepEqual(m.content_scripts[0].js.slice(0, 2), ['common/messages.js', 'common/geom.js'], '协议常量必须最先注入');
 
-const CMDS = ['capture-full', 'capture-visible', 'capture-region', '_execute_action'];
-for (const c of CMDS) {
-  assert.ok(m.commands[c], `缺少命令 ${c}`);
-  assert.ok(m.commands[c].suggested_key.default, `命令 ${c} 缺少默认快捷键`);
-}
-assert.deepEqual(
-  Object.values(m.commands).map(c => c.suggested_key.default).filter(k => k !== 'Alt+Shift+P'),
-  ['Alt+Shift+F', 'Alt+Shift+V', 'Alt+Shift+S']
-);
+// P004:快捷键已全删——截图入口只有面板按钮与右键菜单
+assert.equal(m.commands, undefined, 'v0.5.0 起不应再有 commands 声明');
 
 // ── 版本一致性闸门(防腐烂的机械手段,见 CLAUDE.md 纪律#2)
 // manifest version === CS.EXT_VER === 开发日志的 vX.Y.Z 条目

@@ -8,9 +8,9 @@
 - **右击截取元素**:页面任意元素右键 → 「ClipShot:截取此元素」
 - **隐藏固定元素**:sticky 顶栏、悬浮客服等可从长图中剔除
 - 截图完成后打开**预览页**:缩放查看、下载 PNG/JPEG、复制到剪贴板
-- **Agent 桥接**:本机 HTTP 指令调用截图,给 Cursor / 豆包 / Codex 等 AI Agent 用,
-  图片落盘 `~/clipshot-out/`;支持 MCP 直连一键安装(`node bridge/mcp.mjs --install`,
-  Cursor/Claude Code 对话里直接调)——见 [docs/Agent接入指南.md](docs/Agent接入指南.md)
+- **Agent 桥接(v0.5.0 零配置)**:Cursor 一键接入(`bash bridge/setup.sh`)、
+  其它 Agent 走 curl 或仓库自带 skill(`skills/clipshot-screenshot/`),图片落盘
+  `~/clipshot-out/`——新电脑看 [docs/新机器部署指南.md](docs/新机器部署指南.md)
 
 ## 快速上手
 
@@ -20,7 +20,7 @@
 
 1. 打开 `chrome://extensions/`,右上角开启「开发者模式」
 2. 「加载已解压的扩展程序」→ 选择本仓库根目录(本地 clone 的目录)
-3. 快捷键:`Alt+Shift+F` 整页 / `Alt+Shift+V` 可视区 / `Alt+Shift+S` 框选 / `Alt+Shift+P` 面板
+3. 入口:点工具栏图标开面板(整页/可视区/框选按钮),或页面元素右键「截取此元素」
 4. 截图期间页面顶部会出现「ClipShot 正在调试此浏览器」提示条,**属正常现象,切勿点「取消」**,截完自动消失
 
 详见 [docs/安装与调试指南.md](docs/安装与调试指南.md)。

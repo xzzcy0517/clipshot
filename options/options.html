@@ -41,27 +41,14 @@
   </fieldset>
 
   <fieldset>
-    <legend>快捷键</legend>
-    <table class="kbd-table">
-      <tr><td>整页长截图</td><td>Alt + Shift + F</td></tr>
-      <tr><td>可视区域截图</td><td>Alt + Shift + V</td></tr>
-      <tr><td>框选区域截图</td><td>Alt + Shift + S</td></tr>
-      <tr><td>打开面板</td><td>Alt + Shift + P</td></tr>
-    </table>
-    <div class="mini">如需改键:chrome://extensions/shortcuts。右键页面元素 → 「ClipShot:截取此元素」。</div>
-  </fieldset>
-
-  <fieldset>
     <legend>Agent 桥接(让 AI Agent 调用截图)</legend>
     <div class="mini">
-      让 Cursor / 豆包 / Codex 等 Agent 通过本机 HTTP 命令调用 ClipShot 截图,图片自动存到
-      <code>~/clipshot-out/</code>。完整步骤见
-      <code>docs/Agent接入指南.md</code>。快速上手:终端运行
-      <code>node bridge/relay.mjs</code>,把打印的 token 粘贴到下面并勾选启用。
+      让 Cursor / 豆包 / Codex 等 Agent 通过本机指令调用 ClipShot 截图,图片自动存到
+      <code>~/clipshot-out/</code>。v0.5.0 起<b>零配置</b>:电脑上跑过一次
+      <code>bash bridge/setup.sh</code>(或直接启动 Cursor)后,这里只需勾选启用,
+      端口自动发现、无需 token。详见 <code>docs/新机器部署指南.md</code>。
     </div>
     <label class="row"><input type="checkbox" id="bridgeEnabled"> 启用 Agent 桥接</label>
-    <label>relay 端口<input type="number" id="bridgePort" min="1024" max="65535" step="1" value="8790"></label>
-    <label>token <input type="text" id="bridgeToken" size="36" placeholder="relay 启动时打印的十六进制串" autocomplete="off" spellcheck="false"></label>
     <div class="status-line">连接状态:<span id="bridge-status">—</span>
       <button id="bridge-refresh" type="button">刷新</button></div>
   </fieldset>
