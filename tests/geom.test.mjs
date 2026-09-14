@@ -90,13 +90,21 @@ assert.deepEqual(geom.clampClip({ x: 95, y: 195, width: 20, height: 20 }, 100, 2
 assert.deepEqual(geom.clampClip({ x: 10.4, y: 20.6, width: 30.5, height: 40.5 }, 1000, 1000), { x: 10, y: 21, width: 31, height: 41 });
 
 /* ---------------- P003:pickEmulationScale / clampTotal / planVolumes ---------------- */
-// 用户实测案例:1857×17756 @ dpr2,面积上限 60M → 降尺度到 ~1.35× 整幅可行
 const AREA = 60 * 1024 * 1024;
-let sc = geom.pickEmulationScale(1857, 17756, 2, AREA);
-assert.ok(sc > 1 && sc < 2, `应落在 (1,2) 之间,实际 ${sc}`);
-assert.ok(1857 * sc * 17756 * sc <= AREA + 1e6, '降尺度后面积必须不超上限');
-assert.equal(geom.pickEmulationScale(1280, 6000, 2, AREA), 2, '小页不降尺度');
+assert.equal(geom.MAX_CAPTURE_DIM, 16000);
+// v0.4.2 用户真实案例:17756px 飞书页 @dpr1(1920 宽)——面积 34M 没超 60M,
+// 但单边 17756 > 16000 纹理上限 → 必须返回 0 走分段(否则尾部内容回绕成首屏)
+assert.equal(geom.pickEmulationScale(1920, 17756, 1, AREA), 0, '单边超限 → 0 → 分段');
+assert.equal(geom.pickEmulationScale(1857, 17756, 2, AREA), 0, 'dpr2 同样单边超限 → 0');
+// 单边限制内、面积吃紧 → 降尺度
+let sc = geom.pickEmulationScale(800, 15900, 2, AREA);
+assert.ok(sc >= 1 && sc <= 16000 / 15900 + 1e-9, `应被单边约束到 ~1.006,实际 ${sc}`);
+// 常规页不降尺度
+assert.equal(geom.pickEmulationScale(1280, 6000, 2, AREA), 2);
+assert.equal(geom.pickEmulationScale(1920, 15000, 1, AREA), 1, '面积/单边都在限内 → 1×');
 assert.equal(geom.pickEmulationScale(1280, 90000, 2, AREA), 0, '连 1× 都放不下 → 0 → 走分段');
+// 自定义 maxDim 参数
+assert.equal(geom.pickEmulationScale(100, 5000, 1, AREA, 4000), 0);
 // clampTotal
 assert.deepEqual(geom.clampTotal(17756, 60000), { h: 17756, truncated: false, dropped: 0 });
 assert.deepEqual(geom.clampTotal(85000, 60000), { h: 60000, truncated: true, dropped: 25000 });

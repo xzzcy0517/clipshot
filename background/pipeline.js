@@ -396,6 +396,8 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       // ③ 兼容兜底:clip + captureBeyondViewport(旧版 Chrome 的可靠写法)
       if (!segments && !isInternal && css.cssH <= s.splitThreshold) {
         for (const scale of [1, 0.5]) {
+          // 单边物理上限同样约束兜底路径(超限输出尺寸对但内容回绕,v0.4.2 教训)
+          if (css.cssH * scale * dpr > CS.geom.MAX_CAPTURE_DIM) continue;
           try {
             const b64 = await capturePageScreenshot(job.tabId, captureParams(s, {
               clip: { x: 0, y: 0, width: css.cssW, height: css.cssH, scale }
@@ -786,8 +788,12 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       abortCheck(job);
       phase(job, 'capture', 70);
       const AREA_CAP = 60 * 1024 * 1024;
-      if (css.cssW * dpr * rect.height * dpr > AREA_CAP) {
-        // 超大元素:退回 clip + captureBeyondViewport(受纹理上限约束,尽力而为)
+      // 仿真宽度取测量 rect 时的视口宽,保证布局不重排(rect 与像素一一对应)
+      const bandW = Math.max(1, Math.round((m && m.vw) || css.cssW));
+      if (css.cssW * dpr * rect.height * dpr > AREA_CAP ||
+          rect.height * dpr > CS.geom.MAX_CAPTURE_DIM ||
+          bandW * dpr > CS.geom.MAX_CAPTURE_DIM) {
+        // 超大元素(面积或单边超限):退回 clip + captureBeyondViewport(尽力而为)
         const b = await capturePageScreenshot(job.tabId, captureParams(s, {
           clip: { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 }
         }), 15000);
@@ -797,8 +803,6 @@ globalThis.ClipShot = globalThis.ClipShot || {};
         return b;
       }
       let prevY = 0;
-      // 仿真宽度取测量 rect 时的视口宽,保证布局不重排(rect 与像素一一对应)
-      const bandW = Math.max(1, Math.round((m && m.vw) || css.cssW));
       try {
         // 先仿真后滚动(反序会被 resize 重排钳制/漂移 scrollTop,同分段模式的教训)
         await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {

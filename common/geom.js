@@ -85,15 +85,27 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   };
 
   /**
-   * 整幅仿真可用的 deviceScaleFactor(P003 整幅优先):
-   * 面积 (capW*s)×(capH*s) ≤ areaCap 的最大 s,夹在 [1, dpr];
-   * 连 s=1 都放不下时返回 0,调用方走分段。
+   * Chrome surface 捕获单边物理上限(GPU 纹理 ~16384,留安全边距取 16000)。
+   * v0.4.2 实测教训:超限不报错——输出尺寸/宽高比全对,但超限尾部内容
+   * 「回绕」成首屏复制,几何校验防不住,必须捕获前限制。
    */
-  geom.pickEmulationScale = function (capW, capH, dpr, areaCap) {
+  geom.MAX_CAPTURE_DIM = 16000;
+
+  /**
+   * 整幅仿真可用的 deviceScaleFactor(P003 整幅优先):
+   * 需同时满足 面积 (capW*s)×(capH*s) ≤ areaCap、单边 capW*s/capH*s ≤ maxDim;
+   * 取满足条件的最大 s,夹在 [1, dpr];连 s=1 都放不下时返回 0,调用方走分段。
+   */
+  geom.pickEmulationScale = function (capW, capH, dpr, areaCap, maxDim) {
     if (!(capW > 0 && capH > 0 && dpr >= 1 && areaCap > 0)) return 0;
-    const fit = Math.sqrt(areaCap / (capW * capH));
-    if (fit < 1) return 0;
-    return Math.min(dpr, fit);
+    const dimCap = maxDim > 0 ? maxDim : geom.MAX_CAPTURE_DIM;
+    const s = Math.min(
+      dpr,
+      Math.sqrt(areaCap / (capW * capH)),
+      dimCap / capH,
+      dimCap / capW
+    );
+    return s >= 1 ? s : 0;
   };
 
   /** 总长闸门(P003):超过 maxTotal 截断,返回 {h, truncated, dropped}。 */

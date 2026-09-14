@@ -14,9 +14,10 @@
 <div class="bar">模拟飞书顶栏(fixed,应隐藏且不留空位错位)</div>
 <div class="doc" id="doc"><div id="wrap" style="padding-top:48px"></div></div>
 <script>
-  // 20000 CSS px 高的内部滚动容器:在 dpr=2 屏上触发 P003「整幅优先降尺度」路径。
-  // 验收:① 预览黄条 ≤2 条;② 尽量单张完整(注记含「分辨率自动降至」);
-  // ③ 若环境迫使分段 → 分卷而非碎段;④ Agent paths 可读。
+  // 20000 CSS px 高的内部滚动容器:超过单边纹理上限(16000),必然走「分段→预览合成」。
+  // 验收:① 注记第一条为「已分 N 段捕获」;② 预览合成为一张(总高≤30000 装进一卷);
+  // ③ 尾部色带 18000–20000 必须是深色 #ccb 段,不得出现首屏内容(v0.4.2 回绕 bug 回归);
+  // ④ Agent paths 多段文件逐个可读。
   const wrap = document.getElementById('wrap');
   const palette = ['#456','#678','#89a','#abc','#bcd','#cde','#def','#fdd','#ecc','#ccb'];
   for (let i = 0; i < 10; i++) {
