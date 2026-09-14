@@ -8,7 +8,8 @@
 - **右击截取元素**:页面任意元素右键 → 「ClipShot:截取此元素」
 - **隐藏固定元素**:sticky 顶栏、悬浮客服等可从长图中剔除
 - 截图完成后打开**预览页**:缩放查看、下载 PNG/JPEG、复制到剪贴板
-- **Agent 桥接(v0.5.0 零配置)**:Cursor 一键接入(`bash bridge/setup.sh`)、
+- **Agent 桥接 + 浏览器操作(v0.6.0)**:截图之外,宿主 Agent 可接管页面
+  做「快照→点击→观察」多步任务(徽标提示、Esc 随时夺回、危险动作标记);Cursor 一键接入(`bash bridge/setup.sh`)、
   其它 Agent 走 curl 或仓库自带 skill(`skills/clipshot-screenshot/`),图片落盘
   `~/clipshot-out/`——新电脑看 [docs/新机器部署指南.md](docs/新机器部署指南.md)
 

@@ -9,7 +9,7 @@
  */
 globalThis.ClipShot = globalThis.ClipShot || {};
 (function (CS) {
-  CS.EXT_VER = '0.5.0';
+  CS.EXT_VER = '0.6.0';
 
   /** 一次性消息类型(request/response) */
   CS.MSG = {
@@ -35,6 +35,14 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     RESTORE_FIXED: 'cs/restoreFixed',// {} → {ok,restored}
     PICK_GET: 'cs/pick.get',        // {maxAgeMs} → {ok,rectDoc(活动滚动容器坐标系),rectVp,tag} | {ok:false,error}
     PICK_QUERY: 'cs/pick.query',    // {selector} → 同 PICK_GET(Agent 桥:CSS 选择器定位元素)
+    // ── Agent 操作(P005,仅接管期间使用)──
+    SNAP: 'cs/snap',                // {baseRev?} → {ok,rev,page,elements[],scroll,captcha}
+    ACT_RUN: 'cs/act.run',          // {rev,actions[],quietMs,dangerWords[]} → {ok,results[],url,err?}
+    CONSOLE_IN: 'cs/console.in',    // MAIN 世界 → ISOLATED 的 CustomEvent 载荷名(非 runtime 消息)
+    CONSOLE: 'cs/console',          // content → sw:{entries:[{msg,at}]} 接管期上报
+    CONTROL_ON: 'cs/agent.on',      // sw → content:{}(亮徽标+挂 Esc)
+    CONTROL_OFF: 'cs/agent.off',    // sw → content:{reason}(摘徽标)
+    RELEASE: 'cs/agent.release',    // content → sw:{reason:'user-esc'}(用户夺回)
     MARQUEE_BEGIN: 'cs/marquee.begin',// {} → {ok}
     MARQUEE_CLEAR: 'cs/marquee.clear',// {} → {ok}
     // content → sw

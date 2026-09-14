@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClipShot 夹具:Agent 操作演练场(P005)</title>
+<style>
+  body { font: 15px/1.8 system-ui; margin: 0; padding: 24px; }
+  .card { border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin-bottom: 20px; }
+  button { padding: 8px 16px; border-radius: 8px; border: 1px solid #bbb; cursor: pointer; }
+  input, select { padding: 6px 8px; border-radius: 6px; border: 1px solid #bbb; }
+  #log { font-family: ui-monospace, monospace; font-size: 13px; color: #345; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h2>Agent 操作演练场</h2>
+<div id="log">等待操作…</div>
+<div class="card"><label>姓名 <input id="name" placeholder="请输入姓名"></label>
+  <label>城市 <select id="city"><option>北京</option><option>上海</option><option>广州</option></select></label>
+</div>
+<div class="card"><button id="greet">打招呼</button>
+  <button id="boom">触发报错(应出现在 consoleErrors)</button>
+</div>
+<div class="card"><button id="nav">2 秒后跳转(测 urlChange)</button>
+  <button id="newtab">新开标签页(测自动跟进)</button>
+  <button id="pay">模拟支付(应被 danger 标记)</button>
+</div>
+<div style="height:1400px"></div>
+<div class="card"><button id="deep">页面底部的深层按钮(测 scroll+idx offscreen)</button></div>
+<script>
+  const log = (m) => { document.getElementById('log').textContent += '\n> ' + m; };
+  // 受控组件风格:input 事件监听,验证 doInput 兼容写法
+  document.getElementById('name').addEventListener('input', e => log('input 事件:' + e.target.value));
+  document.getElementById('greet').addEventListener('click', () => log('greet 被点击 ✔'));
+  document.getElementById('boom').addEventListener('click', () => { undefinedFunctionCall(); });
+  document.getElementById('nav').addEventListener('click', () => setTimeout(() => { location.href = '#moved'; log('已跳转 #moved'); }, 2000));
+  document.getElementById('newtab').addEventListener('click', () => window.open(location.href, '_blank'));
+  document.getElementById('pay').addEventListener('click', () => log('支付按钮被点了(danger 应标记)'));
+  document.getElementById('deep').addEventListener('click', () => log('深层按钮 ✔'));
+</script>
+</body>
+</html>

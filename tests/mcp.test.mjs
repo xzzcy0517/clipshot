@@ -54,7 +54,7 @@ function spawnMcp(extraArgs = [], extraEnv = {}) {
       const poll = () => {
         const hit = msgs.find(pred);
         if (hit) return res(hit);
-        if (Date.now() - t0 > ms) return rej(new Error('等待 MCP 响应超时: ' + JSON.stringify(msgs).slice(0, 300)));
+        if (Date.now() - t0 > ms) return rej(new Error('等待 MCP 响应超时(已见 id: ' + msgs.map(m => m.id).join(',') + ');最后一条: ' + JSON.stringify(msgs[msgs.length - 1]).slice(0, 240)));
         setTimeout(poll, 20);
       };
       poll();
@@ -139,7 +139,8 @@ mcp.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
 id = rpc('tools/list');
 r = await mcp.wait((m) => m.id === id);
 const names = r.result.tools.map(t => t.name).sort();
-assert.deepEqual(names, ['clipshot_health', 'clipshot_screenshot', 'clipshot_tabs']);
+assert.deepEqual(names, ['clipshot_act', 'clipshot_control', 'clipshot_health',
+  'clipshot_screenshot', 'clipshot_snapshot', 'clipshot_tabs']);
 const shot = r.result.tools.find(t => t.name === 'clipshot_screenshot');
 assert.deepEqual(shot.inputSchema.properties.mode.enum, ['full', 'visible', 'element']);
 
@@ -200,6 +201,23 @@ const t2 = r.result.content[0].text;
 assert.ok(!r.result.isError, '多段应成功: ' + t2);
 assert.ok(t2.includes('已分为 2 个分段文件'), t2);
 assert.ok(/mcp_multi_part1of2\.png/.test(t2) && /mcp_multi_part2of2\.png/.test(t2), t2);
+
+// 8c) P005「手」:control 透传 + act 带 capture(result→upload→reply 合流并回路径)
+id = rpc('tools/call', { name: 'clipshot_control', arguments: { on: true } });
+const cmdC = await ext.waitMsg((m) => m.cmd === 'control');
+ext.send({ t: 'reply', id: cmdC.id, ok: true, data: { ok: true, sessionId: 's-test', tabId: 5 } });
+r = await mcp.wait((m) => m.id === id);
+assert.ok(r.result.content[0].text.includes('s-test'), 'control 应透传 sessionId');
+
+id = rpc('tools/call', { name: 'clipshot_act', arguments: { actions: [{ do: 'click', idx: 1 }], capture: 'visible' } });
+const cmdA = await ext.waitMsg((m) => m.cmd === 'act');
+ext.send({ t: 'result', id: cmdA.id, ok: true, image: { name: 'act_cap.png', mime: 'image/png', widthPx: 1, heightPx: 1 } });
+ext.send({ t: 'upload', id: cmdA.id, seq: 0, seg: 0, b64: PNG1x1, last: true });
+ext.send({ t: 'reply', id: cmdA.id, ok: true, data: { ok: true, results: [{ action: 'click', applied: true }], after: { url: 'https://e.com', capture: { pending: true } } } });
+r = await mcp.wait((m) => m.id === id);
+const t3 = r.result.content[0].text;
+assert.ok(!r.result.isError, 'act 应成功: ' + t3);
+assert.ok(t3.includes('act_cap'), 'after.capture 应合入落盘路径: ' + t3);
 
 // 9) 端口占用 → 第二个 mcp 进程自动降级为客户端,仍能 health/tabs
 const mcp2 = spawnMcp();

@@ -1,19 +1,21 @@
 ---
 name: clipshot-screenshot
 description: >-
-  Capture real web-page screenshots through the user's local ClipShot Chrome
-  extension bridge. Use when asked to see the current browser page, capture a
-  full-page/scrolling long screenshot, screenshot a specific element, or verify
-  UI changes in the user's actual browser. Requires: Chrome open with the
-  ClipShot extension and「Agent 桥接」enabled. Trigger phrases include
-  "截图看看浏览器"、"截个长图"、"看看当前页面"、"screenshot the page".
+  Capture real web-page screenshots AND drive the page (click/type/observe)
+  through the user's local ClipShot Chrome extension bridge. Use when asked to
+  see the current browser page, capture a full-page/scrolling long screenshot,
+  screenshot a specific element, verify UI changes, or perform multi-step
+  browser tasks ("填这个表单并提交", "帮我在页面上点同意"). Requires: Chrome
+  open with the ClipShot extension and「Agent 桥接」enabled. Trigger phrases:
+  "截图看看浏览器"、"截个长图"、"看看当前页面"、"点一下/填一下页面上…"、"screenshot the page".
 ---
 
-# ClipShot 截图桥(Agent Skill)
+# ClipShot 截图 + 浏览器操作桥(Agent Skill)
 
 本仓库自带的通用 skill:教任何支持 Agent Skill 的宿主(Claude Code / Claude /
-支持 skill 的国产 Agent)通过本机 HTTP 桥调用用户 Chrome 里的 ClipShot 扩展截图。
-Cursor 用户走 MCP(`bridge/mcp.mjs`),不需要本文档;两者底层是同一座桥。
+支持 skill 的国产 Agent)通过本机 HTTP 桥使用用户 Chrome 里的 ClipShot 扩展——
+截图(P001)与「手」操作页面(P005)是同一座桥。Cursor 用户走 MCP(`bridge/mcp.mjs`),
+工具同名同义,不需要本文档。
 
 ## 使用前检查(每次会话第一次调用前做一次)
 
@@ -58,7 +60,45 @@ curl -s http://127.0.0.1:<端口>/v1/screenshot \
 失败响应:`{"ok":false,"error":"BUSY","message":"…"}`——message 已是给人看的中文,
 原样转述即可;`BUSY` 等 10 秒重试,`DEVTOOLS_CONFLICT` 让用户关掉该页 F12。
 
-## 边界与礼仪
+## 「手」:操作浏览器页面(P005,同一座桥)
+
+**规矩:先接管,再动手;每步「动作→自动等待→观察」一次调用。**
+
+```bash
+# ① 开启接管(告知用户一声;页面会亮「Agent 控制中」徽标,用户按 Esc 随时夺回)
+curl -s http://127.0.0.1:<端口>/v1/control -H 'Content-Type: application/json' \
+  -d '{"on":true,"target":"active"}'
+
+# ② 快照:拿带编号的元素清单(idx 引用,别自己猜坐标)
+curl -s http://127.0.0.1:<端口>/v1/snapshot -H 'Content-Type: application/json' -d '{}'
+
+# ③ 执行 + 等待 + 观察(capture 让动作后的截图一并回你)
+curl -s http://127.0.0.1:<端口>/v1/act -H 'Content-Type: application/json' -d '{
+  "rev": <快照的rev>,
+  "actions":[{"do":"input","idx":3,"text":"张三"},{"do":"click","idx":7}],
+  "wait":{"until":["urlChange","newTab","consoleError"],"timeoutMs":8000},
+  "capture":"visible"}'
+
+# ④ 用完交还
+curl -s http://127.0.0.1:<端口>/v1/control -H 'Content-Type: application/json' -d '{"on":false}'
+```
+
+动作库:`click / input / select{value} / keys{keys:"Enter"} / hover /
+scroll{to:"bottom"|"top"|y|idx} / clickAt{x,y} / navigate{url} / back`。
+返回 `after`:`url` 变了没、`tabEvents`(新标签/跳转,新标签会被自动跟进接管)、
+`consoleErrors`(点出 bug 就在这里看到)、`changed`(哪些等待条件命中)、
+`capture.paths`(动作后的截图,读它确认"点了之后的样子")。
+
+**操作礼仪(必须遵守)**:
+- `STALE_SNAPSHOT` → 页面变了,**重新 snapshot 再用新编号**,绝不沿用旧 idx;
+- result 里出现 `danger:"支付"` 之类标记 → **先问用户再 confirm 执行**(默认只标记
+  不拦截,拦截与否由用户设置);
+- snapshot `captcha:true` → 验证码交给人,别绕;
+- `SESSION_EXPIRED / STEPS_LIMIT / NOT_CONTROLLING` → 按 message 处理,不要狂重试;
+- 银行/反爬严格站点可能识别程序点击(isTrusted),失败两次就报告用户改人工;
+- 每步动作后真看一眼 capture 再决定下一步——这就是"眼睛+手"的意义。
+
+## 边界与礼仪(截图)
 
 - 整页模式期间用户页面会被"放大重排"一下,属正常,别连续连发;一次截图几十秒内保持耐心;
 - 截图落在用户本机 `~/clipshot-out/`,不会外发;不要尝试关掉/重启桥进程;

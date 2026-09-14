@@ -416,6 +416,242 @@
     mq = null;
   }
 
+  /* ================= P005 Agent 操作:快照 / 动作 / 徽标 / console ================= */
+
+  // ── console 转发接收(agent.js 向 MAIN world 注入探针,探针以 CustomEvent 送进来) ──
+  document.addEventListener(MSG.CONSOLE_IN, (e) => {
+    try {
+      chrome.runtime.sendMessage({ type: MSG.CONSOLE, entries: (e && e.detail && e.detail.entries) || [] }).catch(() => {});
+    } catch (err) { /* noop */ }
+  });
+
+  // ── 接管徽标 + Esc 夺回 ──
+  let badge = null;
+  const onEsc = (e) => {
+    if (e.key === 'Escape' && badge) {
+      chrome.runtime.sendMessage({ type: MSG.RELEASE, reason: 'user-esc' }).catch(() => {});
+    }
+  };
+  function badgeOn() {
+    if (badge) return;
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:2147483646';
+    const sh = host.attachShadow({ mode: 'closed' });
+    sh.innerHTML = '<style>.b{background:#14331f;color:#aef0bd;font:12px/1.6 system-ui,sans-serif;padding:6px 12px;border-radius:8px;border:1px solid #2f8f4f;box-shadow:0 2px 10px rgba(0,0,0,.45);white-space:nowrap}</style><div class="b">🤖 Agent 控制中 · 按 Esc 交还</div>';
+    document.documentElement.appendChild(host);
+    badge = { host };
+    window.addEventListener('keydown', onEsc, true);
+  }
+  function badgeOff() {
+    if (!badge) return;
+    window.removeEventListener('keydown', onEsc, true);
+    try { badge.host.remove(); } catch (e) { /* noop */ }
+    badge = null;
+  }
+
+  // ── 快照:结构变动防抖升 rev(旧编号过期,防“页面变了还按旧快照点”) ──
+  let snapRev = 1;
+  let snapEls = [];
+  let revTimer = null;
+  function startRevTracking() {
+    if (revTimer !== null || typeof MutationObserver === 'undefined') return;
+    new MutationObserver((ms) => {
+      if (!ms.some(m => m.type === 'childList')) return;
+      clearTimeout(revTimer);
+      revTimer = setTimeout(() => { snapRev++; revTimer = 0; }, 400);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+    revTimer = 0;
+  }
+
+  const SNAP_SELECTOR = 'a[href],button,input,select,textarea,summary,[role],[onclick],[tabindex]:not([tabindex="-1"]),' +
+    'iframe[src*="recaptcha"],iframe[src*="hcaptcha"],iframe[src*="geetest"],iframe[src*="captcha"]';
+  function roleOf(el) {
+    const r = el.getAttribute && el.getAttribute('role');
+    if (r) return r;
+    const t = el.tagName;
+    if (t === 'A') return 'link';
+    if (t === 'BUTTON') return 'button';
+    if (t === 'SELECT') return 'combobox';
+    if (t === 'TEXTAREA') return 'textbox';
+    if (t === 'IFRAME') return 'captcha-frame';
+    if (t === 'INPUT') return ({ text: 'textbox', search: 'searchbox', email: 'textbox', url: 'textbox', tel: 'textbox',
+      number: 'spinbutton', checkbox: 'checkbox', radio: 'radio', range: 'slider', file: 'button', password: 'textbox' }[el.type] || el.type);
+    return (el.onclick || (el.tabIndex >= 0)) ? 'button' : t.toLowerCase();
+  }
+  function textOf(el) {
+    const t = (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') ||
+      el.getAttribute('title') || el.getAttribute('alt') || '').trim().replace(/\s+/g, ' ');
+    return t.slice(0, 60);
+  }
+  function selOf(el) {
+    if (el.id) return '#' + CSS.escape(el.id);
+    const path = [];
+    let n = el;
+    while (n && n.nodeType === 1 && path.length < 4) {
+      let s = n.tagName.toLowerCase();
+      if (n.id) { path.unshift('#' + CSS.escape(n.id)); break; }
+      const parent = n.parentElement;
+      if (parent) {
+        const same = Array.from(parent.children).filter(c => c.tagName === n.tagName);
+        if (same.length > 1) s += ':nth-of-type(' + (same.indexOf(n) + 1) + ')';
+      }
+      path.unshift(s);
+      n = parent;
+    }
+    return path.join(' > ');
+  }
+  function querySnapshot() {
+    startRevTracking();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const all = Array.from(document.querySelectorAll(SNAP_SELECTOR));
+    const inView = [], offView = [];
+    for (const el of all) {
+      if (el.getAttribute && (el.getAttribute('role') === 'presentation' || el.getAttribute('aria-hidden') === 'true')) continue;
+      let r;
+      try { r = el.getBoundingClientRect(); } catch (e) { continue; }
+      if (r.width < 1 || r.height < 1) continue;
+      if (!el.getClientRects().length) continue;
+      const visible = r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
+      (visible ? inView : offView).push(el);
+      if (inView.length > 120 && offView.length > 40) break;
+    }
+    const chosen = inView.slice(0, 120).concat(offView.slice(0, 40));
+    chosen.sort((a, b) => a.compareDocumentPosition(b) & 2 ? 1 : -1); // 文档序(2=preceding)
+    snapEls = [null, ...chosen]; // idx 从 1 起
+    const elements = chosen.map((el, i) => {
+      const r = el.getBoundingClientRect();
+      const item = {
+        idx: i + 1,
+        role: roleOf(el),
+        text: textOf(el),
+        sel: selOf(el),
+        rectVp: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)],
+        disabled: !!(el.disabled || el.getAttribute('aria-disabled') === 'true')
+      };
+      if (r.bottom < 0 || r.top > vh) item.offscreen = true;
+      if (item.role === 'captcha-frame') item.captcha = true;
+      return item;
+    });
+    const sc = findScroller();
+    return {
+      ok: true, rev: snapRev,
+      page: { url: location.href, title: document.title || '' },
+      viewport: { w: vw, h: vh },
+      scroll: { y: Math.round(sc.el.scrollTop), max: Math.round(sc.el.scrollHeight) },
+      elements,
+      captcha: elements.some(e => e.captcha)
+    };
+  }
+
+  // ── 动作执行 ──
+  function resolveTarget(a) {
+    let el = null;
+    if (a.idx != null) el = snapEls[a.idx] || null;
+    else if (a.sel) { try { el = document.querySelector(a.sel); } catch (e) { el = null; } }
+    if (!el) { const err = new Error('target not found'); err.code = 'NO_TARGET'; throw err; }
+    return el;
+  }
+  const DANGER_DEFAULTS = ['支付', '付款', '转账', '提现', '删除', '解绑', '退出登录', 'unsubscribe', 'delete', 'transfer'];
+  function dangerHit(el, words) {
+    if (el.tagName === 'INPUT' && el.type === 'password') return 'password field';
+    const hay = (textOf(el) + ' ' + (el.className && el.className.toString ? el.className.toString() : '')).toLowerCase();
+    for (const w of (words || DANGER_DEFAULTS)) { if (w && hay.includes(String(w).toLowerCase())) return String(w); }
+    return null;
+  }
+  function firePointer(el, type, opts) {
+    const Ctor = type.startsWith('pointer') ? (window.PointerEvent || MouseEvent) : MouseEvent;
+    el.dispatchEvent(new Ctor(type, Object.assign({ bubbles: true, composed: true, cancelable: true }, opts)));
+  }
+  async function doClick(el, a) {
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+    await sleep(60);
+    const r = el.getBoundingClientRect();
+    const base = { clientX: Math.round(r.x + r.width / 2), clientY: Math.round(r.y + r.height / 2), button: 0 };
+    firePointer(el, 'pointerover', base); firePointer(el, 'mouseover', base);
+    firePointer(el, 'pointerdown', base); firePointer(el, 'mousedown', base);
+    firePointer(el, 'pointerup', base); firePointer(el, 'mouseup', base);
+    firePointer(el, 'click', base);
+  }
+  function doInput(el, a) {
+    el.focus();
+    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype :
+      (el.tagName === 'INPUT' ? HTMLInputElement.prototype : el.constructor.prototype);
+    const d = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (d && d.set) d.set.call(el, String(a.text == null ? '' : a.text)); else el.value = String(a.text || '');
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  async function actRun(msg) {
+    startRevTracking();
+    if (msg.rev != null && msg.rev !== snapRev) return { ok: false, error: 'STALE_SNAPSHOT', rev: snapRev };
+    const words = msg.dangerWords || DANGER_DEFAULTS;
+    const results = [];
+    const urlBefore = location.href;
+    for (const a of (msg.actions || [])) {
+      const entry = { action: String(a.do || '') };
+      try {
+        if (a.do === 'navigate') { results.push((entry.applied = true, entry)); location.assign(String(a.url)); await sleep(400); continue; }
+        if (a.do === 'back') { results.push((entry.applied = true, entry)); history.back(); await sleep(400); continue; }
+        const el = resolveTarget(a);
+        entry.target = (textOf(el) || el.tagName.toLowerCase()).slice(0, 40);
+        const danger = dangerHit(el, words);
+        if (danger) { entry.danger = danger; }
+        if (danger && msg.dangerMode === 'block' && !a.confirm) {
+          entry.applied = false; entry.error = 'CONFIRM_REQUIRED';
+          results.push(entry); continue;
+        }
+        switch (a.do) {
+          case 'click': await doClick(el, a); break;
+          case 'input': doInput(el, a); break;
+          case 'select':
+            el.focus(); el.value = String(a.value != null ? a.value : el.value);
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            break;
+          case 'keys': {
+            const t = document.activeElement || document.body;
+            const key = String(a.keys || 'Enter');
+            t.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, composed: true }));
+            t.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true, composed: true }));
+            break;
+          }
+          case 'hover': {
+            const r = el.getBoundingClientRect();
+            firePointer(el, 'pointerover', { clientX: r.x + 2, clientY: r.y + 2 });
+            firePointer(el, 'mouseover', { clientX: r.x + 2, clientY: r.y + 2 });
+            firePointer(el, 'pointermove', { clientX: r.x + 2, clientY: r.y + 2 });
+            firePointer(el, 'mousemove', { clientX: r.x + 2, clientY: r.y + 2 });
+            break;
+          }
+          case 'scroll': {
+            const sc = findScroller();
+            if (a.idx != null) snapEls[a.idx] && snapEls[a.idx].scrollIntoView({ block: 'start' });
+            else if (a.to === 'bottom') sc.el.scrollTop = sc.el.scrollHeight;
+            else if (a.to === 'top') sc.el.scrollTop = 0;
+            else sc.el.scrollTop = Math.max(0, a.y | 0);
+            break;
+          }
+          case 'clickAt': {
+            const el2 = document.elementFromPoint(a.x | 0, a.y | 0);
+            if (!el2) { entry.applied = false; entry.error = 'NO_TARGET'; break; }
+            await doClick(el2, a);
+            break;
+          }
+          default: entry.applied = false; entry.error = 'unknown action: ' + a.do; break;
+        }
+        if (entry.applied !== false) entry.applied = true;
+      } catch (e) {
+        entry.applied = false;
+        entry.error = (e && e.code) || String((e && e.message) || e);
+      }
+      results.push(entry);
+      await sleep(60);
+    }
+    // 等本窗口渲染稳定(复用渲染稳定门控;虚拟列表/SPA 跳转后尤其必要)
+    await renderStable(2500).catch(() => {});
+    return { ok: true, results, url: location.href, urlChanged: location.href !== urlBefore, rev: snapRev };
+  }
+
   /* --------------------------------------------------------- 消息入口 */
 
   async function handle(m) {
@@ -431,6 +667,10 @@
       case MSG.RESTORE_FIXED: return restoreFixed();
       case MSG.PICK_GET: return pickGet(m.maxAgeMs);
       case MSG.PICK_QUERY: return queryRect(m.selector);
+      case MSG.SNAP: return querySnapshot();
+      case MSG.ACT_RUN: return actRun(m);
+      case MSG.CONTROL_ON: badgeOn(); return { ok: true };
+      case MSG.CONTROL_OFF: badgeOff(); return { ok: true };
       case MSG.MARQUEE_BEGIN: return marqueeBegin();
       case MSG.MARQUEE_CLEAR: marqueeTeardown(); return { ok: true };
       default: return { ok: false, error: ERR.UNKNOWN };

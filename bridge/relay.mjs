@@ -207,6 +207,22 @@ export function startRelay({ port = DEFAULT_PORT, outDir }) {
       const id = crypto.randomUUID();
       return dispatch(id, { res, kind: 'simple' }, { t: 'cmd', id, cmd: 'tabs' }, CMD_TIMEOUT_SIMPLE);
     }
+    // P005「手」路由:POST JSON 转发;act 可达 60s(含等待+截图),其余 20s
+    const CMD_ROUTES = { '/v1/snapshot': 'snapshot', '/v1/control': 'control', '/v1/act': 'act' };
+    const cmdName = CMD_ROUTES[u.pathname];
+    if (cmdName && req.method === 'POST') {
+      let args;
+      try { args = JSON.parse(await readBody(req) || '{}'); }
+      catch (e) { return json(res, 400, { ok: false, error: 'BAD_REQUEST', message: String(e.message || e) }); }
+      const id = crypto.randomUUID();
+      return dispatch(id, { res, kind: 'simple', files: null, chunks: new Map() },
+        { t: 'cmd', id, cmd: cmdName, args }, cmdName === 'act' ? 60000 : 20000);
+    }
+    if (u.pathname === '/v1/events' && req.method === 'GET') {
+      const id = crypto.randomUUID();
+      return dispatch(id, { res, kind: 'simple' },
+        { t: 'cmd', id, cmd: 'events', args: { sinceMs: Number(u.searchParams.get('sinceMs')) || 0 } }, CMD_TIMEOUT_SIMPLE);
+    }
     if (u.pathname === '/v1/screenshot' && req.method === 'POST') {
       let args;
       try { args = JSON.parse(await readBody(req) || '{}'); }
@@ -251,18 +267,23 @@ export function startRelay({ port = DEFAULT_PORT, outDir }) {
         if (!p) return;
         clearTimeout(p.timer);
         pending.delete(m.id);
-        if (p.kind === 'simple') return json(p.res, 200, m);
+        if (p.kind === 'simple') {
+          const data = (m.data !== undefined) ? m.data : m;
+          // act 带 capture 时:图片先于 reply 落盘,把 paths 并入 after.capture
+          if (p.files && data && data.after && data.after.capture) data.after.capture = { paths: p.files };
+          return json(p.res, 200, data);
+        }
         if (!m.ok) return json(p.res, 200, m); // 截图失败也把错误体原样回给 Agent
         break;
       }
       case 'result': {
         const p = pending.get(m.id);
-        if (p && p.kind === 'shot') { p.meta = m.image || {}; p.notes = m.notes || []; }
+        if (p) { p.meta = m.image || {}; p.notes = m.notes || []; }
         break;
       }
       case 'upload': {
         const p = pending.get(m.id);
-        if (!p || p.kind !== 'shot') return;
+        if (!p || (p.kind !== 'shot' && p.kind !== 'simple')) return;
         if (m.error) {
           clearTimeout(p.timer); pending.delete(m.id);
           return json(p.res, 500, { ok: false, error: 'UPLOAD_FAILED', message: '扩展侧读取图片数据失败' });
@@ -272,7 +293,6 @@ export function startRelay({ port = DEFAULT_PORT, outDir }) {
         //  即用户实测「Agent 长图丢了一大截」的真实原因。)
         p.chunks.set(m.seq, { seg: m.seg | 0, b64: m.b64 });
         if (!m.last) return;
-        clearTimeout(p.timer); pending.delete(m.id);
         const groups = new Map(); // seg → b64(按 seq 升序拼接)
         for (const [, c] of [...p.chunks.entries()].sort((a, b) => a[0] - b[0])) {
           groups.set(c.seg, (groups.get(c.seg) || '') + c.b64);
@@ -297,6 +317,10 @@ export function startRelay({ port = DEFAULT_PORT, outDir }) {
         } catch (e) {
           return json(p.res, 500, { ok: false, error: 'WRITE_FAILED', message: '写盘失败:' + (e.message || e) });
         }
+        // act 的 capture:pending 保留,等随后 reply 帧合并落盘 paths 后统一终结;
+        // 纯截图(shot)以最后一个 upload 作为响应点
+        if (p.kind !== 'shot') { p.files = paths; break; }
+        clearTimeout(p.timer); pending.delete(m.id);
         json(p.res, 200, {
           ok: true,
           image: {

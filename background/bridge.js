@@ -139,26 +139,42 @@ globalThis.ClipShot = globalThis.ClipShot || {};
         } catch (e) {
           return replyErr(id, (e && e.error) || ERR.UNKNOWN, (e && e.message) || undefined);
         }
-        const meta = CS.imagestore.meta(res.jobId);
-        if (!meta || !meta.ok) return replyErr(id, ERR.STALE_JOB);
-        send({
-          t: 'result', id, ok: true,
-          image: { name: meta.name, mime: meta.mime, widthPx: meta.widthPx, heightPx: meta.heightPx },
-          notes: (res.notes && res.notes.length ? res.notes : meta.notes) || []
-        });
-        for (let i = 0; i < meta.chunkCount; i++) {
-          const c = CS.imagestore.chunk(res.jobId, i);
-          if (!c || !c.ok) { send({ t: 'upload', id, seq: i, error: true }); break; }
-          // seg 段号必带:relay 按段分组落盘(P003 多段损坏 bug 的源头修复)
-          send({ t: 'upload', id, seq: i, seg: c.seg | 0, b64: c.b64, last: i === meta.chunkCount - 1 });
+        await uploadChunks(id, res.jobId);
+        return;
+      }
+      // P005 「手」命令组:全部要求先 control(on) —— agent.js 内部校验
+      if (['control', 'snapshot', 'act', 'events'].includes(m.cmd)) {
+        const r = await CS.agent[m.cmd]((m.args || {}));
+        if (m.cmd === 'act' && r && r._captureJob) {
+          const jobId = r._captureJob;
+          delete r._captureJob;
+          if (r.after && r.after.capture && r.after.capture.pending) delete r.after.capture.pending;
+          await uploadChunks(id, jobId); // result + upload 帧先行,reply 殿后(relay 把落盘 paths 并入 after.capture)
         }
-        CS.imagestore.done(res.jobId);
+        send(Object.assign({ t: 'reply', id, ok: !!(r && r.ok) }, r && r.ok ? { data: r } : { error: r && r.error, message: r && r.message }));
         return;
       }
       return replyErr(id, ERR.UNKNOWN, '未知命令: ' + m.cmd);
     } catch (e) {
       replyErr(id, ERR.UNKNOWN, String((e && e.message) || e));
     }
+  }
+
+  /** imagestore → relay 分块回传。seg 段号必带(P003:relay 按段分组落盘)。 */
+  async function uploadChunks(id, jobId) {
+    const meta = CS.imagestore.meta(jobId);
+    if (!meta || !meta.ok) { send({ t: 'reply', id, ok: false, error: ERR.STALE_JOB }); return; }
+    send({
+      t: 'result', id, ok: true,
+      image: { name: meta.name, mime: meta.mime, widthPx: meta.widthPx, heightPx: meta.heightPx },
+      notes: meta.notes || []
+    });
+    for (let i = 0; i < meta.chunkCount; i++) {
+      const c = CS.imagestore.chunk(jobId, i);
+      if (!c || !c.ok) { send({ t: 'upload', id, seq: i, error: true }); break; }
+      send({ t: 'upload', id, seq: i, seg: c.seg | 0, b64: c.b64, last: i === meta.chunkCount - 1 });
+    }
+    CS.imagestore.done(jobId);
   }
 
   function closeSock() {
@@ -202,6 +218,9 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       extVer: CS.EXT_VER
     };
   };
+  // P005:agent.js 复用目标解析与带超时消息通道
+  bridge.resolveTarget = resolveTarget;
+  bridge.sendToTab = sendToTab;
 
   CS.bridge = bridge;
 })(globalThis.ClipShot);

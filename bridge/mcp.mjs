@@ -6,8 +6,9 @@
  *   即自动获得 HTTP+WS 桥,无需手动常驻终端;端口被占时自动降级为「纯客户端」,
  *   经 HTTP 调已存在的 relay(token 读自配置),多宿主共存不打架。
  * - MCP stdio 传输:换行分隔的 JSON-RPC 2.0;stdout 只走协议,日志一律 stderr。
- * - 工具(克制三件套,仅回文件路径不内联图片——用户决策):
- *   clipshot_screenshot / clipshot_health / clipshot_tabs
+ * - 工具(P005 后五件套):clipshot_screenshot / clipshot_health / clipshot_tabs /
+ *   clipshot_control / clipshot_snapshot / clipshot_act(截图仅回文件路径不内联——用户决策;
+ *   「手」三个端点 JSON 原样透传给宿主)
  * - 一键安装:node bridge/mcp.mjs --install [--dry-run]
  * - v0.5.0(P004):零配置——无 token、端口 8790–8795 自动发现;skill 说明书
  *   维护在仓库 skills/clipshot-screenshot/,由各 Agent 宿主自行取用,不做自动分发。
@@ -58,6 +59,38 @@ const TOOLS = [
     name: 'clipshot_tabs',
     description: '列出当前浏览器中可截图的标签页(tabId/网址/标题/是否活动),用于选择截图目标。',
     inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'clipshot_control',
+    description: '开启/关闭浏览器接管(P005「手」)。on=true 后才有 snapshot/act 能力;接管期间页面右上角常亮徽标、用户按 Esc 随时夺回、超时自动交还。开始操作前告知用户,结束后 on=false 主动交还。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        on: { type: 'boolean', description: 'true 开启接管,false 交还' },
+        target: { description: '"active"(默认) / tabId / {"urlContains":"关键字"}', anyOf: [{ type: 'string' }, { type: 'integer' }, { type: 'object', properties: { urlContains: { type: 'string' } }, required: ['urlContains'] }] },
+        ttlSec: { type: 'integer', description: '无动作自动交还秒数,默认 300' }
+      },
+      required: ['on']
+    }
+  },
+  {
+    name: 'clipshot_snapshot',
+    description: '取接管页结构快照:page(url/title)+ elements 带编号清单 {idx,role,text,sel,rectVp,offscreen?,disabled?} + rev。操作引用 idx;收到 STALE_SNAPSHOT 必须重新 snapshot,勿沿用旧编号。captcha=true 表示页面含验证码,交给人处理。',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'clipshot_act',
+    description: '执行一组动作并自动「等稳定+观察回报」。actions:[{do:click|input|select|keys|hover|scroll|clickAt|navigate|back, idx或sel, text/value/keys/y/url}]。wait.until 可含 urlChange/newTab/consoleError(任一命中或超时即返);capture:"visible"|"full" 随结果附回动作后截图路径。返回 after 含 url/tabEvents/consoleErrors/changed;results 里 danger 字段=命中危险词(支付/删除等)——系统默认放行但执行这类动作前应先征得用户同意。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rev: { type: 'integer', description: 'snapshot 版本号(STALE 会被拒)' },
+        actions: { type: 'array', items: { type: 'object' }, description: '1~20 个动作' },
+        wait: { type: 'object', properties: { until: { type: 'array', items: { type: 'string' } }, timeoutMs: { type: 'integer' }, quietMs: { type: 'integer' } } },
+        capture: { type: 'string', enum: ['visible', 'full'] }
+      },
+      required: ['actions']
+    }
   }
 ];
 
@@ -117,6 +150,16 @@ async function callTool(backend, name, args) {
     if (!j.ok) return toolError(j);
     const lines = (j.tabs || []).map(t => `${t.active ? '→' : ' '} [${t.tabId}] ${t.title}\n    ${t.url}`);
     return { content: [{ type: 'text', text: lines.length ? '可截图标签页:\n' + lines.join('\n') : '(没有可截图的标签页)' }] };
+  }
+  // P005「手」:control/snapshot/act 直接透传桥端点(JSON 原样给宿主)
+  const HANDLERS = {
+    clipshot_control: () => api(backend, '/v1/control', { method: 'POST', body: args, timeoutMs: 20000 }),
+    clipshot_snapshot: () => api(backend, '/v1/snapshot', { method: 'POST', body: {}, timeoutMs: 20000 }),
+    clipshot_act: () => api(backend, '/v1/act', { method: 'POST', body: args, timeoutMs: 70000 })
+  };
+  if (HANDLERS[name]) {
+    const j = await HANDLERS[name]();
+    return { content: [{ type: 'text', text: JSON.stringify(j, null, 1) }], isError: !j.ok };
   }
   if (name === 'clipshot_screenshot') {
     const mode = args.mode || 'full';

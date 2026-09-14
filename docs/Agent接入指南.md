@@ -80,6 +80,10 @@ curl -s http://127.0.0.1:8790/v1/tabs
 | `/v1/health` | GET | 桥/扩展/版本状态 |
 | `/v1/tabs` | GET | 可截标签页列表 |
 | `/v1/screenshot` | POST JSON | mode/selector/target/format/hideFixed;返回 image.path(s) |
+| `/v1/control` | POST JSON | P005 接管开关 on/target/ttlSec(徽标+Esc 夺回) |
+| `/v1/snapshot` | POST JSON | 带编号交互元素清单 + rev(结构变动即 STALE) |
+| `/v1/act` | POST JSON | actions(8 种)+wait(urlChange/newTab/consoleError)+capture → after 观察包 |
+| `/v1/events` | GET | 接管期标签/控制台增量事件 |
 
 ## 排错速查
 

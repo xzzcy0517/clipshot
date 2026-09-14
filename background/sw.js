@@ -12,7 +12,8 @@ importScripts(
   '/background/networkidle.js',
   '/background/imagestore.js',
   '/background/pipeline.js',
-  '/background/bridge.js'
+  '/background/bridge.js',
+  '/background/agent.js'
 );
 
 const CS = globalThis.ClipShot;
@@ -94,6 +95,14 @@ chrome.runtime.onMessage.addListener((m, sender, sendResponse) => {
         case MSG.BRIDGE_STATE:
           sendResponse(Object.assign({ ok: true }, CS.bridge.status()));
           return;
+        case MSG.CONSOLE: // P005:console 探针批量上报(content → sw)
+          CS.agent.pushConsole(m.entries, sender.tab && sender.tab.id);
+          sendResponse({ ok: true });
+          return;
+        case MSG.RELEASE: // 用户按 Esc 夺回
+          CS.agent.release(m.reason || 'user-esc');
+          sendResponse({ ok: true });
+          return;
         default:
           sendResponse({ ok: false, error: CS.ERR.UNKNOWN });
       }
@@ -118,9 +127,14 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 /* ---------------- 标签页关闭 / alarm / 桥接设置变更 ---------------- */
-chrome.tabs.onRemoved.addListener((tabId) => CS.pipeline.onTabClosed(tabId));
+CS.agent.attach(); // P005:tab 创建/更新事件流与新标签跟进
+chrome.tabs.onRemoved.addListener((tabId) => {
+  CS.pipeline.onTabClosed(tabId);
+  CS.agent.onTabClosed(tabId);
+});
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === 'bridge-heart') { CS.bridge.tick(); return; }
+  if (a.name === 'agent-ttl') { CS.agent.onAlarm(a.name); return; }
   CS.pipeline.onAlarm(a.name);
 });
 chrome.storage.onChanged.addListener((ch, area) => {
