@@ -207,7 +207,7 @@ chromium.launchPersistentContext('', {
 | 你看到 | 意思 | 一步解决 |
 |---|---|---|
 | `node: command not found` | 没装 Node | 第 0 步装 Node |
-| relay 启动报 `EADDRINUSE` | 8790 被占(通常是一个旧 relay 还开着) | 找到旧终端关掉,或 `node bridge/relay.mjs --port 8791` |
+| relay 启动报 `EADDRINUSE` | 8790 上已有一个桥 | 先 `lsof -nP -iTCP:8790 -sTCP:LISTEN` 看占用者:是 `mcp.mjs` = **Cursor 自动拉起的桥,正常在跑,不用管也别杀**(用 MCP 接入时本就不需要手动跑 relay.mjs,curl 也直接打这个桥);是别的终端里的手动 relay → 回那窗口 Ctrl+C 或 `lsof -ti:8790 \| xargs kill`;确要并存 → `--port 8791`(扩展设置页同步改) |
 | health 里 `connected:false` | 扩展侧没连上 | 设置页确认已勾选启用 + token 完全一致;点 ClipShot 图标唤醒扩展;等 30 秒 |
 | curl 报 `connection refused` | relay 没在跑 | 回第 1 步启动它 |
 | 401 `BAD_TOKEN` | curl 里的 token 不对 | 从 `~/.clipshot/relay.json` 重抄 |
