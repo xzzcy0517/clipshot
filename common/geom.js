@@ -92,28 +92,18 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   geom.MAX_CAPTURE_DIM = 16000;
 
   /**
-   * 整幅降尺度下限(v0.4.3,用户决策「尽量单张、少拼接」):
-   * 允许仿真分辨率降到 0.4×,单张可覆盖到 MAX_CAPTURE_DIM/0.4 = 40000 CSS px;
-   * 低于下限清晰度对识图/人眼都无意义,才落分段。
+   * 整幅仿真可用的 deviceScaleFactor(P003 整幅优先,v0.4.4 收紧为「原生或分段」):
+   * **只允许原生 dpr,禁止分数缩放**——v0.4.3 实测:0.9× + 超大视口会让 Chrome
+   * 栅格化从后半程撕裂(内容截半/花屏),比明明白白分段糟糕得多。
+   * 原生装不下(单边 >maxDim 或面积 >areaCap)→ 返回 0,调用方走分段
+   * (分段每段视口高度正常,虚拟列表/栅格化都在安全区;预览端会合成为单张)。
    */
-  geom.MIN_FULL_SCALE = 0.4;
-
-  /**
-   * 整幅仿真可用的 deviceScaleFactor(P003 整幅优先):
-   * 需同时满足 面积 (capW*s)×(capH*s) ≤ areaCap、单边 capW*s/capH*s ≤ maxDim;
-   * 取满足条件的最大 s,夹在 [minScale, dpr];连 minScale 都放不下时返回 0 → 分段。
-   */
-  geom.pickEmulationScale = function (capW, capH, dpr, areaCap, maxDim, minScale) {
+  geom.pickEmulationScale = function (capW, capH, dpr, areaCap, maxDim) {
     if (!(capW > 0 && capH > 0 && dpr >= 1 && areaCap > 0)) return 0;
     const dimCap = maxDim > 0 ? maxDim : geom.MAX_CAPTURE_DIM;
-    const floor = minScale > 0 ? minScale : geom.MIN_FULL_SCALE;
-    const s = Math.min(
-      dpr,
-      Math.sqrt(areaCap / (capW * capH)),
-      dimCap / capH,
-      dimCap / capW
-    );
-    return s >= floor ? s : 0;
+    if (capW * dpr > dimCap || capH * dpr > dimCap) return 0;
+    if (capW * dpr * capH * dpr > areaCap) return 0;
+    return dpr;
   };
 
   /** 总长闸门(P003):超过 maxTotal 截断,返回 {h, truncated, dropped}。 */

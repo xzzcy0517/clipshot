@@ -92,27 +92,17 @@ assert.deepEqual(geom.clampClip({ x: 10.4, y: 20.6, width: 30.5, height: 40.5 },
 /* ---------------- P003:pickEmulationScale / clampTotal / planVolumes ---------------- */
 const AREA = 60 * 1024 * 1024;
 assert.equal(geom.MAX_CAPTURE_DIM, 16000);
-assert.equal(geom.MIN_FULL_SCALE, 0.4);
-// v0.4.3 用户真实案例:17756px 飞书页 @dpr1(1920 宽)——单边超 16000,
-// 但降到 16000/17756≈0.9× 即可「单张完整」,不再走分段(用户决策:尽量单张)
-let sc = geom.pickEmulationScale(1920, 17756, 1, AREA);
-assert.ok(Math.abs(sc - 16000 / 17756) < 1e-6, `应降到单边恰好达标,实际 ${sc}`);
-assert.ok(17756 * sc <= 16000 + 1e-6, '降尺度后不得超纹理上限(否则尾部回绕)');
-sc = geom.pickEmulationScale(1857, 17756, 2, AREA);
-assert.ok(Math.abs(sc - 16000 / 17756) < 1e-6, 'dpr2 同样降到 ~0.9×');
-// 单边限制内、面积吃紧 → 降尺度
-sc = geom.pickEmulationScale(800, 15900, 2, AREA);
-assert.ok(sc >= 1 && sc <= 16000 / 15900 + 1e-9, `应被单边约束到 ~1.006,实际 ${sc}`);
-// 常规页不降尺度
-assert.equal(geom.pickEmulationScale(1280, 6000, 2, AREA), 2);
-assert.equal(geom.pickEmulationScale(1920, 15000, 1, AREA), 1, '面积/单边都在限内 → 1×');
-// 下限 0.4×:40000 CSS px 恰好可单张,40001 落分段
-assert.ok(Math.abs(geom.pickEmulationScale(1000, 40000, 1, AREA) - 0.4) < 1e-9);
-assert.equal(geom.pickEmulationScale(1000, 40001, 1, AREA), 0, '低于下限 → 0 → 走分段');
-assert.equal(geom.pickEmulationScale(1280, 90000, 2, AREA), 0, '极端超长 → 0 → 走分段');
-// 自定义 maxDim/minScale 参数
-assert.ok(Math.abs(geom.pickEmulationScale(100, 5000, 1, AREA, 4000) - 0.8) < 1e-9);
-assert.equal(geom.pickEmulationScale(100, 5000, 1, AREA, 4000, 0.9), 0, 'minScale=0.9 时 0.8 不可用');
+// v0.4.4:禁止分数缩放(0.9×+超大视口实测栅格撕裂)→ 原生放得下才单张,否则分段
+assert.equal(geom.pickEmulationScale(1920, 17756, 1, AREA), 0, '单边 17756>16000 → 0 → 分段');
+assert.equal(geom.pickEmulationScale(1857, 17756, 2, AREA), 0);
+assert.equal(geom.pickEmulationScale(800, 15900, 2, AREA), 0, '15900×2=31800 超单边 → 分段');
+assert.equal(geom.pickEmulationScale(1280, 6000, 2, AREA), 2, '原生 2× 放得下 → 单张');
+assert.equal(geom.pickEmulationScale(1920, 15000, 1, AREA), 1, '单边/面积都在限内 → 原生 1×');
+assert.equal(geom.pickEmulationScale(1280, 90000, 2, AREA), 0, '极端超长 → 分段');
+assert.equal(geom.pickEmulationScale(16000, 16000, 1, AREA), 0, '单边达标但面积 256M 超限 → 分段');
+// 自定义 maxDim
+assert.equal(geom.pickEmulationScale(100, 5000, 1, AREA, 4000), 0);
+assert.equal(geom.pickEmulationScale(100, 3000, 1, AREA, 4000), 1);
 // clampTotal
 assert.deepEqual(geom.clampTotal(17756, 60000), { h: 17756, truncated: false, dropped: 0 });
 assert.deepEqual(geom.clampTotal(85000, 60000), { h: 60000, truncated: true, dropped: 25000 });

@@ -380,9 +380,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
           const complete = !rs || rs.docH <= capH + 4;
           if (complete && CS.geom.aspectOk(sizeFromB64(b64), capW, capH)) {
             segments = [{ b64 }];
-            pathNote = emuScale < dpr - 0.02
-              ? `已单张完整截取(页面过大,分辨率自动降至 ${emuScale.toFixed(2)}×)`
-              : '已单张完整截取';
+            pathNote = '已单张完整截取';
             if (rs && !rs.stable) notes.push('页面渲染未完全稳定,如有区块缺失请重试或在设置中调慢滚动速度');
           }
         } catch (e) {
@@ -416,7 +414,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       // ④ 分段兜底:段高受单图上限(maxPartDeviceH)自动收敛;总长受 capH 闸门约束
       if (!segments) {
         segments = await runSegmented(job, capW, capH, dpr, s);
-        pathNote = `页面超出单图上限,已分 ${segments.length} 段捕获(预览按分卷展示;Agent 返回全部段文件)`;
+        pathNote = `页面超出浏览器单张捕获上限,已分 ${segments.length} 段拍摄;预览与下载为合成后的单张长图(Agent 返回 ${segments.length} 个分段文件,按序即整页)`;
       }
       if (pathNote) notes.unshift(pathNote);
 
