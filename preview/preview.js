@@ -69,21 +69,55 @@
     $('wrap').appendChild(imgEl);
   }
 
-  /** 多段拼接:按各段实际解码高度堆叠(dpr 非整数也不漂移);超出画布上限时退化为分段列表。 */
+  /**
+   * 多段合成(P003 分卷):先按各段实际解码高度做装箱(每卷累计 ≤30000 设备 px),
+   * 一卷能装下全部 → 单张合成长图;否则每卷一张(按序即整图),人可逐卷下载查看。
+   * 装箱/合成仍失败(单段超限等)→ 退化为逐段列表(原兜底保留)。
+   */
   async function composeSegments(blobs) {
     try {
       const bitmaps = await Promise.all(blobs.map(b => createImageBitmap(b)));
-      const totalH = bitmaps.reduce((n, b) => n + b.height, 0);
-      const maxW = bitmaps.reduce((n, b) => Math.max(n, b.width), 0);
-      if (totalH > 32767 || maxW > 32767) throw new Error('canvas-overflow');
-      const canvas = document.createElement('canvas');
-      canvas.width = maxW; canvas.height = totalH;
-      const ctx = canvas.getContext('2d');
-      let y = 0;
-      for (const bmp of bitmaps) { ctx.drawImage(bmp, 0, y); y += bmp.height; }
-      const out = await new Promise((res, rej) => canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), meta.mime));
-      showBlob(out);
-      addNote('长图由 ' + blobs.length + ' 段自动拼接完成');
+      const vols = CS.geom.planVolumes(bitmaps.map(b => b.height), 30000);
+      const compose = async (from, count) => {
+        const part = bitmaps.slice(from, from + count);
+        const h = part.reduce((n, b) => n + b.height, 0);
+        const w = part.reduce((n, b) => Math.max(n, b.width), 0);
+        if (h > 32767 || w > 32767) throw new Error('canvas-overflow');
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        let y = 0;
+        for (const bmp of part) { ctx.drawImage(bmp, 0, y); y += bmp.height; }
+        return new Promise((res, rej) => canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), meta.mime));
+      };
+      if (vols.length === 1) {
+        showBlob(await compose(0, bitmaps.length));
+        addNote('长图由 ' + blobs.length + ' 段自动拼接为一张');
+        return;
+      }
+      $('info').textContent = `整页过长,已分 ${vols.length} 卷展示(每卷一张长图)`;
+      const list = document.createElement('div');
+      list.className = 'seg-list';
+      for (let vi = 0; vi < vols.length; vi++) {
+        const v = vols[vi];
+        const blob = await compose(v.from, v.count);
+        if (vi === 0) currentBlob = blob;
+        const item = document.createElement('div');
+        item.className = 'seg-item';
+        const cap = document.createElement('div');
+        cap.className = 'cap';
+        cap.textContent = `第 ${vi + 1} / ${vols.length} 卷(${v.count} 段,${v.height} px)`;
+        const dl = document.createElement('button');
+        dl.textContent = '下载本卷';
+        dl.addEventListener('click', () => downloadBlob(blob, dotName(meta.name, `-vol${vi + 1}`)));
+        cap.appendChild(dl);
+        const img = new Image();
+        img.src = URL.createObjectURL(blob);
+        item.appendChild(cap); item.appendChild(img);
+        list.appendChild(item);
+      }
+      $('wrap').appendChild(list);
+      addNote('整图超出浏览器画布上限,已自动分 ' + vols.length + ' 卷,每卷一张完整长图;按卷序排列即整页');
     } catch (e) {
       // 回退:分段展示 + 逐段下载
       $('info').textContent = '图片超出画布上限,按分段展示';

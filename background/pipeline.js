@@ -312,18 +312,23 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       // 仿真宽度用 innerWidth:与当前布局宽度一致,避免滚动条消失/出现引发
       // 文本重排——重排正是分段拼接缝错位的根源之一
       const capW = Math.max(1, Math.round((m2 && m2.vw) || css.cssW));
-      const capH = Math.max(1, Math.round(isInternal ? m2.scrollerH : Math.max(css.cssH, (m2 && m2.docH) || 0)));
+      let capH = Math.max(1, Math.round(isInternal ? m2.scrollerH : Math.max(css.cssH, (m2 && m2.docH) || 0)));
 
-      // 超长页自动降体积:PNG 且超过阈值 → JPEG
+      // ── P003 治理:注记降噪(过程不逐条喊,最终一条路径说明)+ 三层上限
       const notes = [];
-      if (s.autoJpegForLong && s.format === 'png' && capH > s.autoJpegMinCssH) {
-        s.format = 'jpeg';
-        notes.push(`页面较长(${Math.round(capH)}px),已自动改用 JPEG 以控制体积`);
-      }
       if (scrollInfo.infinite) notes.push('检测到无限滚动,仅包含已加载部分');
       if (isInternal) notes.push('检测到内部滚动容器(飞书/Notion 类文档),已按容器高度捕获');
-      else if (scrollInfo.scroller === 'internal') notes.push('检测到 SPA 内部滚动容器,已按该容器滚动');
       if (scrollInfo.stoppedBy === 'none') notes.push('未检测到可滚动内容,结果可能不完整');
+      // ① 总长闸门:截断取前段并明示,绝不无限截碎图串
+      const totalCap = CS.geom.clampTotal(capH, s.maxTotalCssH);
+      if (totalCap.truncated) {
+        notes.push(`页面超过总长上限,已截取前 ${totalCap.h}px,尾部约 ${Math.round(totalCap.dropped)}px 未截取(可在设置页调大「总长上限」)`);
+      }
+      capH = totalCap.h;
+      if (s.autoJpegForLong && s.format === 'png' && capH > s.autoJpegMinCssH) {
+        s.format = 'jpeg';
+        notes.push('页面较长,已自动改用 JPEG 控制体积');
+      }
 
       // 滚动归零:仿真视口拍的是 [scrollTop, scrollTop+H],不归零会缺头部
       try { await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: 0 }, 4000); } catch (e) { /* noop */ }
@@ -332,17 +337,18 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       abortCheck(job);
       const dpr = Math.max(1, Math.min(3, (cm && cm.dpr) || 1));
       let segments = null;
+      let pathNote = '';
       const AREA_CAP = 60 * 1024 * 1024; // 单次仿真视口最大设备像素面积
 
-      // A) 主路径:仿真视口放大到整页(Emulation.setDeviceMetricsOverride,
-      //    DevTools「Capture full size screenshot」同款机制),再拍普通视口截图。
-      //    v0.1.x 实测教训:captureBeyondViewport(无论有无 clip)在该内核上
-      //    只渲染第一屏、其余留白且尺寸正确(比例对账都防不住),彻底放弃依赖它。
-      if (capW * dpr * capH * dpr <= AREA_CAP) {
+      // ② 整幅优先(P003):面积超上限时先自动降尺度整幅(下限 1×,不再直接跳分段)。
+      //    「一张完整图」优先于「最多清晰度」——对识图与预览都是正确取舍。
+      //    机制仍是 DevTools「Capture full size screenshot」同款(仿真视口+普通截图);
+      //    v0.1.x 实测教训:captureBeyondViewport 在该内核只渲染第一屏,彻底不依赖。
+      let emuScale = CS.geom.pickEmulationScale(capW, capH, dpr, AREA_CAP);
+      if (emuScale > 0) {
         try {
-          let emuH = capH;
           await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
-            width: capW, height: emuH, deviceScaleFactor: dpr, mobile: false
+            width: capW, height: capH, deviceScaleFactor: emuScale, mobile: false
           }, 5000);
           await CS.util.sleep(250);
           // 视口放大会触发一批 IntersectionObserver 懒加载 + 虚拟列表全量重渲染,
@@ -350,38 +356,42 @@ globalThis.ClipShot = globalThis.ClipShot || {};
           await CS.network.waitForIdle(job.tabId, 500, 3000);
           let rs = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 4000 }, 8000).catch(() => null);
           // 固定高度容器(聊天面板类)不随视口拉伸,仿真无效 → 明确报错而非静默出残图
-          if (isInternal && rs && rs.clientH > 0 && rs.clientH < emuH * 0.9) {
+          if (isInternal && rs && rs.clientH > 0 && rs.clientH < capH * 0.9) {
             throw mkErr(ERR.FIXED_CONTAINER);
           }
-          // 放大后重排可能让内容更高(占位块换真实内容):再放大一次并重新等稳定
-          if (rs && rs.docH > emuH + 4) {
-            emuH = Math.round(rs.docH);
-            await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
-              width: capW, height: emuH, deviceScaleFactor: dpr, mobile: false
-            }, 5000);
-            await CS.util.sleep(200);
-            rs = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 4000 }, 8000).catch(() => null);
+          // 放大后重排可能让内容更高(占位块换真实内容):再放大一次(仍守面积上限与总长闸门)
+          if (rs && rs.docH > capH + 4) {
+            const again = CS.geom.clampTotal(Math.round(rs.docH), s.maxTotalCssH);
+            const s2 = CS.geom.pickEmulationScale(capW, again.h, dpr, AREA_CAP);
+            if (s2 > 0) {
+              capH = again.h;
+              emuScale = s2;
+              await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
+                width: capW, height: capH, deviceScaleFactor: emuScale, mobile: false
+              }, 5000);
+              await CS.util.sleep(200);
+              rs = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 4000 }, 8000).catch(() => null);
+            }
           }
           abortCheck(job);
           const b64 = await capturePageScreenshot(job.tabId, captureOpts(s), 60000);
-          const complete = !rs || rs.docH <= emuH + 4;
-          if (complete && CS.geom.aspectOk(sizeFromB64(b64), capW, emuH)) {
+          const complete = !rs || rs.docH <= capH + 4;
+          if (complete && CS.geom.aspectOk(sizeFromB64(b64), capW, capH)) {
             segments = [{ b64 }];
+            pathNote = emuScale < dpr - 0.02
+              ? `已单张完整截取(页面过大,分辨率自动降至 ${emuScale.toFixed(2)}×)`
+              : '已单张完整截取';
             if (rs && !rs.stable) notes.push('页面渲染未完全稳定,如有区块缺失请重试或在设置中调慢滚动速度');
-          } else {
-            notes.push('整幅捕获不完整(未覆盖整页),已改用分段捕获');
           }
         } catch (e) {
           if (e.clipshotCode === ERR.FIXED_CONTAINER || e.clipshotCode === ERR.USER_CANCELED_BANNER || job.abortCode) throw e;
-          notes.push('整幅捕获失败,已改用分段捕获');
+          /* 整幅失败静默转下一级,由 pathNote 说明最终路径 */
         } finally {
           await clearViewportEmulation(job.tabId);
         }
-      } else {
-        notes.push('页面过大,直接走分段捕获');
       }
 
-      // B) 兜底:clip + captureBeyondViewport(旧版 Chrome 的可靠写法)
+      // ③ 兼容兜底:clip + captureBeyondViewport(旧版 Chrome 的可靠写法)
       if (!segments && !isInternal && css.cssH <= s.splitThreshold) {
         for (const scale of [1, 0.5]) {
           try {
@@ -390,24 +400,23 @@ globalThis.ClipShot = globalThis.ClipShot || {};
             }), 60000);
             if (CS.geom.aspectOk(sizeFromB64(b64), css.cssW, css.cssH)) {
               segments = [{ b64 }];
-              if (scale === 0.5) notes.push('已按 1/2 分辨率捕获以适配页面尺寸');
+              pathNote = scale === 0.5 ? '已单张完整截取(兼容模式,1/2 分辨率)' : '已单张完整截取(兼容模式)';
               break;
             }
           } catch (e) {
             if (e.clipshotCode === ERR.USER_CANCELED_BANNER || job.abortCode) throw e;
           }
         }
-        if (!segments) notes.push('整幅捕获不完整,已改用分段捕获拼接');
       }
 
-      // C) 分段兜底:自适应「仿真视口=段高 → 滚动定位 → 渲染稳定 → 视口截图」
-      if (!segments) segments = await runSegmented(job, capW, notes, dpr);
+      // ④ 分段兜底:段高受单图上限(maxPartDeviceH)自动收敛;总长受 capH 闸门约束
+      if (!segments) {
+        segments = await runSegmented(job, capW, capH, dpr, s);
+        pathNote = `页面超出单图上限,已分 ${segments.length} 段捕获(预览按分卷展示;Agent 返回全部段文件)`;
+      }
+      if (pathNote) notes.unshift(pathNote);
 
       await deliver(job, { mime: 'image/' + s.format, notes, segments });
-    } catch (e) {
-      // 用户取消横幅等 onDetach 已标记 abortCode 时给出准确文案
-      if (e && e.clipshotCode) throw e;
-      throw e;
     } finally {
       // 四层防泄漏:finally 必做 detach;清视口仿真;restore 固定元素;停网络监听
       await clearViewportEmulation(job.tabId);
@@ -503,9 +512,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
    * - 滚动后校验 applied 与目标一致,钳制(触底)时收缩段高防与前段重叠;
    * - 每段截图前等渲染稳定(飞书文档类虚拟列表渲染新窗口需要时间)。
    */
-  async function runSegmented(job, capW, notes, dpr) {
-    const s = job.settings;
-    notes.push('页面超出单幅上限,已自动分段捕获并拼接');
+  async function runSegmented(job, capW, limitH, dpr, s) {
     // 分段模式强制隐藏固定元素,否则每段重复绘制 fixed/sticky
     if (!job.hideFixedApplied) {
       phase(job, 'hideFixed', 65);
@@ -513,13 +520,16 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     }
     phase(job, 'stitch', 70);
     const segments = [];
+    // P003 单图上限:段高收敛到 maxPartDeviceH/dpr,保证每段远低于画布/纹理限制
+    const baseH = Math.max(500, Math.min(s.chunkHeight, Math.floor(s.maxPartDeviceH / dpr)));
     let pos = 0, totalH = Infinity, iter = 0, consecutiveFail = 0;
     while (iter++ < 200) {
       abortCheck(job);
       const probe = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 2500 }, 6000).catch(() => null);
       if (probe && probe.docH > 0) totalH = probe.docH;
-      if (!(pos < totalH - 2)) break;
-      let h = Math.min(s.chunkHeight, Math.ceil(totalH - pos));
+      const stopAt = Math.min(totalH, limitH); // 总长闸门同样约束分段
+      if (!(pos < stopAt - 2)) break;
+      let h = Math.min(baseH, Math.ceil(stopAt - pos));
       let b64 = null, applied = pos;
       for (let attempt = 0; attempt < 2 && !b64; attempt++) {
         const k = attempt === 0 ? 1 : 0.5; // 重试降分辨率

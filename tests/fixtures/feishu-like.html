@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClipShot 夹具:超长内部容器文档(模拟飞书)</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; font: 14px system-ui; }
+  .doc { height: 100vh; overflow-y: auto; }
+  .bar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: #2f6fe4; color: #fff; line-height: 48px; padding-left: 14px; z-index: 9; }
+  .band { height: 2000px; display: flex; align-items: center; justify-content: center; font-size: 24px; color: #fff; }
+</style>
+</head>
+<body>
+<div class="bar">模拟飞书顶栏(fixed,应隐藏且不留空位错位)</div>
+<div class="doc" id="doc"><div id="wrap" style="padding-top:48px"></div></div>
+<script>
+  // 20000 CSS px 高的内部滚动容器:在 dpr=2 屏上触发 P003「整幅优先降尺度」路径。
+  // 验收:① 预览黄条 ≤2 条;② 尽量单张完整(注记含「分辨率自动降至」);
+  // ③ 若环境迫使分段 → 分卷而非碎段;④ Agent paths 可读。
+  const wrap = document.getElementById('wrap');
+  const palette = ['#456','#678','#89a','#abc','#bcd','#cde','#def','#fdd','#ecc','#ccb'];
+  for (let i = 0; i < 10; i++) {
+    const b = document.createElement('div');
+    b.className = 'band';
+    b.style.background = palette[i];
+    b.textContent = (i * 2000) + ' – ' + ((i + 1) * 2000) + ' px';
+    wrap.appendChild(b);
+  }
+</script>
+</body>
+</html>

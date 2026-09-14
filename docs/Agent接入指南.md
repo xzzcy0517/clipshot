@@ -76,6 +76,10 @@ curl -s http://127.0.0.1:8790/v1/screenshot \
 几秒到几十秒后返回一堆信息,里面 `"path":"/Users/…/clipshot-out/ClipShot_xxx_full.png"`
 ——去这个文件双击打开,就是你的整页长图。**到这里,人肉流程闭环了。**
 
+(极少数超长页会返回 `"parts":N, "paths":[part1, part2…]` ——N 张分段长图,
+按序排列即整页;普通文档现在都会走"单张完整"路径,超长页的自动降尺度/分卷
+逻辑见设置页「总长上限」「单图上限」。)
+
 其他两种玩法:
 
 ```bash
@@ -104,7 +108,8 @@ curl -s http://127.0.0.1:8790/v1/screenshot \
 - mode 可选:full(整页长图,自动滚动加载)/ visible(当前屏)/
   element(需 selector,截指定元素)
 - target 可选:"active"(默认当前页)或 {"urlContains":"关键字"} 按网址找标签页
-- 返回 JSON 的 image.path 就是 PNG/JPEG 文件路径,用你的识图能力读它即可看到页面内容
+- 返回 JSON 的 image.path 就是 PNG/JPEG 文件路径,用你的识图能力读它即可看到页面内容;
+  若 image.parts > 1,图被分为 image.paths 里的多个分段文件(part1…N),按序逐个读取即覆盖整页
 - 错误处理:EXTENSION_OFFLINE=用户 Chrome 里桥接没启用/浏览器没开;
   BUSY=上一张还在截,等 10 秒重试;TIMEOUT=页面太大,改 format:"jpeg" 重试
 - 截网页给我看之前,默认用 full 模式,它比你自己截图多能拍到滚动区域外的内容。

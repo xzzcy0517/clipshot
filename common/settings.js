@@ -11,7 +11,9 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     autoJpegMinCssH: 12000,
     splitThreshold: 16000,    // 超过此 CSS 高度改用分段捕获
     chunkHeight: 4000,        // 分段每段 CSS 高度
-    maxScrollPx: 30000        // 自动滚动扫页的最大行程(无限流保护)
+    maxScrollPx: 30000,       // 自动滚动扫页的最大行程(无限流保护)
+    maxTotalCssH: 60000,      // P003 总长闸门:整页最多截这么多 CSS px,超出截断并明示
+    maxPartDeviceH: 12000     // P003 单图上限:分段时每张图的设备像素高度上限
   };
 
   CS.SCROLL_SPEED_RATIO = { fast: 0.9, standard: 0.75, slow: 0.6 };

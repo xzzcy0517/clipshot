@@ -145,7 +145,8 @@ globalThis.ClipShot = globalThis.ClipShot || {};
         for (let i = 0; i < meta.chunkCount; i++) {
           const c = CS.imagestore.chunk(res.jobId, i);
           if (!c || !c.ok) { send({ t: 'upload', id, seq: i, error: true }); break; }
-          send({ t: 'upload', id, seq: i, b64: c.b64, last: i === meta.chunkCount - 1 });
+          // seg 段号必带:relay 按段分组落盘(P003 多段损坏 bug 的源头修复)
+          send({ t: 'upload', id, seq: i, seg: c.seg | 0, b64: c.b64, last: i === meta.chunkCount - 1 });
         }
         CS.imagestore.done(res.jobId);
         return;

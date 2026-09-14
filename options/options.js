@@ -3,7 +3,8 @@
   const CS = globalThis.ClipShot;
   const $ = (id) => document.getElementById(id);
   const FIELDS = ['format', 'jpegQuality', 'autoJpegForLong', 'autoJpegMinCssH',
-    'hideFixed', 'scrollSpeed', 'splitThreshold', 'chunkHeight', 'maxScrollPx'];
+    'hideFixed', 'scrollSpeed', 'splitThreshold', 'chunkHeight', 'maxScrollPx',
+    'maxTotalCssH', 'maxPartDeviceH'];
 
   async function init() {
     $('ver').textContent = CS.EXT_VER;

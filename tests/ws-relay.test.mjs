@@ -201,6 +201,24 @@ const shot2 = await httpReq('POST', '/v1/screenshot', { token: TOKEN, body: { mo
 assert.equal(shot2.json.ok, true);
 assert.ok(/shot_test-2\.png$/.test(shot2.json.image.path), '应生成不重名文件,实际: ' + shot2.json.image.path);
 
+// 6b) P003 多段回传:按 seg 分组、逐段落盘,响应 parts/paths(旧版直连 base64 损坏 bug 的回归)
+nextCmd('screenshot').then((cmd) => {
+  ext.send({ t: 'result', id: cmd.id, ok: true, image: { name: 'multi_test.png', mime: 'image/png', widthPx: 1, heightPx: 2 } });
+  ext.send({ t: 'upload', id: cmd.id, seq: 0, seg: 0, b64: PNG1x1, last: false });
+  ext.send({ t: 'upload', id: cmd.id, seq: 1, seg: 1, b64: PNG1x1, last: true });
+});
+const multi = await httpReq('POST', '/v1/screenshot', { token: TOKEN, body: { mode: 'full' } });
+assert.equal(multi.json.ok, true);
+assert.equal(multi.json.image.parts, 2);
+assert.equal(multi.json.image.paths.length, 2);
+assert.ok(/multi_test_part1of2\.png$/.test(multi.json.image.paths[0]), multi.json.image.paths[0]);
+assert.ok(/multi_test_part2of2\.png$/.test(multi.json.image.paths[1]), multi.json.image.paths[1]);
+for (const p of multi.json.image.paths) {
+  assert.equal(fs.readFileSync(p).length, Buffer.from(PNG1x1, 'base64').length, '每个分段都必须是完整可读的图片');
+}
+assert.equal(multi.json.image.heightPx, null, '多段时 heightPx 不谎报整图高');
+assert.equal(multi.json.image.path, multi.json.image.paths[0], 'path 向后兼容=第一分段');
+
 // 7) 扩展断开 → 进行中请求收到 EXTENSION_OFFLINE,后续 503
 const inFlight = httpReq('POST', '/v1/screenshot', { token: TOKEN, body: { mode: 'full' } });
 await nextCmd('screenshot');

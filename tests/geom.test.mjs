@@ -89,6 +89,31 @@ assert.deepEqual(geom.clampClip({ x: 95, y: 195, width: 20, height: 20 }, 100, 2
 // Math.round 对 .5 向 +∞ 取整:30.5→31,40.5→41
 assert.deepEqual(geom.clampClip({ x: 10.4, y: 20.6, width: 30.5, height: 40.5 }, 1000, 1000), { x: 10, y: 21, width: 31, height: 41 });
 
+/* ---------------- P003:pickEmulationScale / clampTotal / planVolumes ---------------- */
+// 用户实测案例:1857×17756 @ dpr2,面积上限 60M → 降尺度到 ~1.35× 整幅可行
+const AREA = 60 * 1024 * 1024;
+let sc = geom.pickEmulationScale(1857, 17756, 2, AREA);
+assert.ok(sc > 1 && sc < 2, `应落在 (1,2) 之间,实际 ${sc}`);
+assert.ok(1857 * sc * 17756 * sc <= AREA + 1e6, '降尺度后面积必须不超上限');
+assert.equal(geom.pickEmulationScale(1280, 6000, 2, AREA), 2, '小页不降尺度');
+assert.equal(geom.pickEmulationScale(1280, 90000, 2, AREA), 0, '连 1× 都放不下 → 0 → 走分段');
+// clampTotal
+assert.deepEqual(geom.clampTotal(17756, 60000), { h: 17756, truncated: false, dropped: 0 });
+assert.deepEqual(geom.clampTotal(85000, 60000), { h: 60000, truncated: true, dropped: 25000 });
+// planVolumes:5 段×8000(+尾段 5000),卷上限 30000 → 3 段一卷 + 剩余一卷
+const vols = geom.planVolumes([8000, 8000, 8000, 8000, 8000, 5000], 30000);
+assert.deepEqual(vols, [
+  { from: 0, count: 3, height: 24000 },
+  { from: 3, count: 3, height: 21000 }
+]);
+assert.equal(vols[0].height <= 30000, true);
+assert.equal(vols.reduce((n, v) => n + v.count, 0), 6, '所有段必须被装箱,不丢段');
+let cursor = 0;
+for (const v of vols) { assert.equal(v.from, cursor); cursor += v.count; }
+// 单段超限:自成一卷不丢数据
+const v2 = geom.planVolumes([40000, 1000], 30000);
+assert.equal(v2.length, 2); assert.equal(v2[0].height, 40000); assert.equal(v2[1].height, 1000);
+
 /* ---------------- splitRanges ---------------- */
 assert.deepEqual(geom.splitRanges(9500, 4000), [[0, 4000], [4000, 8000], [8000, 9500]]);
 assert.deepEqual(geom.splitRanges(8000, 4000), [[0, 4000], [4000, 8000]]);

@@ -84,6 +84,43 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     return { x, y, width: w, height: h };
   };
 
+  /**
+   * 整幅仿真可用的 deviceScaleFactor(P003 整幅优先):
+   * 面积 (capW*s)×(capH*s) ≤ areaCap 的最大 s,夹在 [1, dpr];
+   * 连 s=1 都放不下时返回 0,调用方走分段。
+   */
+  geom.pickEmulationScale = function (capW, capH, dpr, areaCap) {
+    if (!(capW > 0 && capH > 0 && dpr >= 1 && areaCap > 0)) return 0;
+    const fit = Math.sqrt(areaCap / (capW * capH));
+    if (fit < 1) return 0;
+    return Math.min(dpr, fit);
+  };
+
+  /** 总长闸门(P003):超过 maxTotal 截断,返回 {h, truncated, dropped}。 */
+  geom.clampTotal = function (h, maxTotal) {
+    if (!(maxTotal > 0) || h <= maxTotal) return { h, truncated: false, dropped: 0 };
+    return { h: maxTotal, truncated: true, dropped: h - maxTotal };
+  };
+
+  /**
+   * 分卷装箱(P003):把有序段高数组按累计 ≤cap 切成卷 [{from, count, height}]。
+   * 单段即超 cap 时自成一卷(不丢数据,由调用方降级展示)。
+   */
+  geom.planVolumes = function (heights, cap) {
+    const vols = [];
+    let cur = null;
+    for (let i = 0; i < heights.length; i++) {
+      const h = Math.max(0, heights[i] | 0);
+      if (!cur || (cur.height + h > cap && cur.height > 0)) {
+        cur = { from: i, count: 0, height: 0 };
+        vols.push(cur);
+      }
+      cur.count++;
+      cur.height += h;
+    }
+    return vols;
+  };
+
   /** 把 total 切成不超过 chunkSize 的连续区间 [start,end) 列表。 */
   geom.splitRanges = function (total, chunkSize) {
     const out = [];

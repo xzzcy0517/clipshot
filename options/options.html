@@ -36,6 +36,8 @@
     <label>分段阈值:页面高度超过该值改用分段捕获(CSS px)<input type="number" id="splitThreshold" min="8000" max="24000" step="500"></label>
     <label>每段高度(CSS px)<input type="number" id="chunkHeight" min="1000" max="8000" step="250"></label>
     <label>最大滚动行程(CSS px,无限流保护)<input type="number" id="maxScrollPx" min="5000" max="100000" step="1000"></label>
+    <label>总长上限:整页最多截取这么多(CSS px,超出截断并明示)<input type="number" id="maxTotalCssH" min="10000" max="200000" step="5000"></label>
+    <label>单图上限:分段时每张图的高度上限(设备 px)<input type="number" id="maxPartDeviceH" min="4000" max="24000" step="1000"></label>
   </fieldset>
 
   <fieldset>

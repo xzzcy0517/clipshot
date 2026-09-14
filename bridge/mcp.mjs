@@ -131,11 +131,17 @@ async function callTool(backend, name, args) {
     const j = await api(backend, '/v1/screenshot', { method: 'POST', body });
     if (!j.ok) return toolError(j);
     const img = j.image || {};
-    const lines = [
-      '截图成功 ✔',
-      `文件: ${img.path}`,
-      `规格: ${img.widthPx || '?'}×${img.heightPx || '?'} px · ${img.mime || 'image/png'} · ${fmtBytes(img.sizeBytes)}`
-    ];
+    const lines = ['截图成功 ✔'];
+    if (img.parts > 1) {
+      lines.push(`整页过长,已分为 ${img.parts} 个分段文件(按序排列即完整长图,请逐个读取):`);
+      (img.paths || [img.path]).forEach((p, i) => lines.push(`  ${i + 1}. ${p}`));
+    } else {
+      lines.push(`文件: ${img.path}`);
+    }
+    lines.push(
+      `规格: ${img.widthPx || '?'}×${img.heightPx || (img.parts > 1 ? '分段' : '?')} px · ` +
+      `${img.mime || 'image/png'} · 共 ${fmtBytes(img.sizeBytes)}`
+    );
     if (j.notes && j.notes.length) lines.push('备注: ' + j.notes.join(';'));
     lines.push('需要查看内容时,直接用你的读图能力打开上面的文件路径。');
     return { content: [{ type: 'text', text: lines.join('\n') }] };

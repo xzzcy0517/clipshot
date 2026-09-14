@@ -116,6 +116,7 @@ function extConnect(port, token) {
 }
 
 /* ---------------- 用例 ---------------- */
+const handledCmds = new Set(); // 已被测试消费的命令 id(防 waitMsg 命中旧消息)
 const mcp = spawnMcp();
 let idc = 0;
 const rpc = (method, params) => { const id = ++idc; mcp.send({ jsonrpc: '2.0', id, method, params }); return id; };
@@ -154,7 +155,8 @@ assert.equal(ack.ok, true);
 
 // 6) 截图端到端:cmd → result+upload → 文本含路径,文件字节一致
 id = rpc('tools/call', { name: 'clipshot_screenshot', arguments: { mode: 'full', format: 'png' } });
-const cmd = await ext.waitMsg((m) => m.cmd === 'screenshot');
+const cmd = await ext.waitMsg((m) => m.cmd === 'screenshot' && !handledCmds.has(m.id));
+handledCmds.add(cmd.id);
 assert.equal(cmd.args.mode, 'full');
 ext.send({ t: 'result', id: cmd.id, ok: true, image: { name: 'mcp_test.png', mime: 'image/png', widthPx: 1, heightPx: 1 }, notes: ['mcp 注记'] });
 ext.send({ t: 'upload', id: cmd.id, seq: 0, b64: PNG1x1, last: true });
@@ -179,6 +181,19 @@ const cmdT = await ext.waitMsg((m) => m.cmd === 'tabs');
 ext.send({ t: 'reply', id: cmdT.id, ok: true, tabs: [{ tabId: 42, url: 'https://e.com', title: '示例', active: true }] });
 r = await mcp.wait((m) => m.id === id);
 assert.ok(r.result.content[0].text.includes('42'));
+
+// 8b) P003 多段:每段一个文件,文本块列出全部路径
+id = rpc('tools/call', { name: 'clipshot_screenshot', arguments: { mode: 'visible' } });
+const cmd2 = await ext.waitMsg((m) => m.cmd === 'screenshot' && !handledCmds.has(m.id));
+handledCmds.add(cmd2.id);
+ext.send({ t: 'result', id: cmd2.id, ok: true, image: { name: 'mcp_multi.png', mime: 'image/png', widthPx: 1 } });
+ext.send({ t: 'upload', id: cmd2.id, seq: 0, seg: 0, b64: PNG1x1, last: false });
+ext.send({ t: 'upload', id: cmd2.id, seq: 1, seg: 1, b64: PNG1x1, last: true });
+r = await mcp.wait((m) => m.id === id);
+const t2 = r.result.content[0].text;
+assert.ok(!r.result.isError, '多段应成功: ' + t2);
+assert.ok(t2.includes('已分为 2 个分段文件'), t2);
+assert.ok(/mcp_multi_part1of2\.png/.test(t2) && /mcp_multi_part2of2\.png/.test(t2), t2);
 
 // 9) 端口占用 → 第二个 mcp 进程自动降级为客户端,仍能 health/tabs
 const mcp2 = spawnMcp();

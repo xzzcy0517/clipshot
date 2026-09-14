@@ -269,24 +269,43 @@ export function startRelay({ port = DEFAULT_PORT, token, outDir }) {
           clearTimeout(p.timer); pending.delete(m.id);
           return json(p.res, 500, { ok: false, error: 'UPLOAD_FAILED', message: '扩展侧读取图片数据失败' });
         }
-        p.chunks.set(m.seq, m.b64);
+        // P003 修复:chunk 按 seg 段号分组、逐段落盘。
+        // (v0.3.0 之前把多段 base64 直连成一个文件 → 损坏,读图方只能解出第一段,
+        //  即用户实测「Agent 长图丢了一大截」的真实原因。)
+        p.chunks.set(m.seq, { seg: m.seg | 0, b64: m.b64 });
         if (!m.last) return;
         clearTimeout(p.timer); pending.delete(m.id);
-        // 按序拼接 base64 → 二进制 → 落盘
-        const seqs = [...p.chunks.keys()].sort((a, b) => a - b);
-        let b64 = '';
-        for (const s of seqs) b64 += p.chunks.get(s);
-        const buf = Buffer.from(b64, 'base64');
-        const file = uniquePath(outDir, safeName(p.meta.name));
-        try { fs.writeFileSync(file, buf); }
-        catch (e) {
+        const groups = new Map(); // seg → b64(按 seq 升序拼接)
+        for (const [, c] of [...p.chunks.entries()].sort((a, b) => a[0] - b[0])) {
+          groups.set(c.seg, (groups.get(c.seg) || '') + c.b64);
+        }
+        const segIds = [...groups.keys()].sort((a, b) => a - b);
+        const N = segIds.length;
+        const baseName = safeName(p.meta.name);
+        const dot = baseName.lastIndexOf('.');
+        const paths = [];
+        let totalBytes = 0;
+        try {
+          for (let i = 0; i < N; i++) {
+            const buf = Buffer.from(groups.get(segIds[i]), 'base64');
+            totalBytes += buf.length;
+            const nm = N === 1 ? baseName
+              : (dot > 0 ? baseName.slice(0, dot) + `_part${i + 1}of${N}` + baseName.slice(dot)
+                         : baseName + `_part${i + 1}of${N}`);
+            const file = uniquePath(outDir, nm);
+            fs.writeFileSync(file, buf);
+            paths.push(file);
+          }
+        } catch (e) {
           return json(p.res, 500, { ok: false, error: 'WRITE_FAILED', message: '写盘失败:' + (e.message || e) });
         }
         json(p.res, 200, {
           ok: true,
           image: {
-            path: file, sizeBytes: buf.length,
-            widthPx: p.meta.widthPx || null, heightPx: p.meta.heightPx || null,
+            path: paths[0], paths, parts: N,
+            sizeBytes: totalBytes,
+            widthPx: p.meta.widthPx || null,
+            heightPx: N === 1 ? (p.meta.heightPx || null) : null, // 多段时单文件高度不等于整图高,不谎报
             mime: p.meta.mime || 'image/png'
           },
           notes: p.notes
