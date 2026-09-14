@@ -313,8 +313,19 @@ function install(cli) {
         clearTimeout(timer);
         say(`   ✔ 自检通过:serverInfo=clipshot v${RELAY_VERSION},工具 ${m.result.tools.length} 个`);
         child.kill();
-        say('\n安装完成。重启你的 Agent(Cursor/Claude Code),在对话里说「把当前页面整页截下来」即可。');
-        say('若提示扩展未连接:打开 Chrome → ClipShot 设置页 → 启用「Agent 桥接」并核对 token。');
+        // 新机器场景:token 是唯一需要人工搬运的信息,必须显式打出来
+        let cfg = {};
+        try { cfg = loadOrCreateConfig({ port: cli.port }); } catch (e) { /* noop */ }
+        say('\n══════════ 安装完成,还差最后两步(在浏览器里) ══════════');
+        say('① chrome://extensions → 开启右上角「开发者模式」→「加载已解压的扩展程序」');
+        say(`   选择仓库目录(含 manifest.json 的那层):${path.dirname(path.dirname(MCP_PATH))}`);
+        say('② 点工具栏 ClipShot 图标 → 打开设置页 →「Agent 桥接」:勾选启用,');
+        say('   粘贴下面的 token,连接状态变「● 已连接」即成功:');
+        say('');
+        say(`   ${cfg.token || '(读取失败,重跑本命令查看)'}`);
+        say('');
+        say('然后重启 Cursor(Cmd+Q),对话里说「用 clipshot 查一下桥状态」验证。');
+        say('完整说明与排错见 docs/新机器部署指南.md');
         process.exit(0);
       }
     }
