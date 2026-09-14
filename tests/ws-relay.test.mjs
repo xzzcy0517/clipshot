@@ -55,6 +55,8 @@ console.log('✔ WS 编解码/握手 单测');
 const PNG1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const TOKEN = 'test-token-123';
 const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clipshot-test-'));
+// 失败/断言抛出也清理,避免断言失败泄漏 /tmp 目录(洁癖收尾发现的 hygiene 问题)
+process.on('exit', () => { try { fs.rmSync(outDir, { recursive: true, force: true }); } catch (e) { /* noop */ } });
 const relay = startRelay({ token: TOKEN, outDir });
 const port = await relay.listen(0);
 

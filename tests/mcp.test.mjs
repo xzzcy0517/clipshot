@@ -22,6 +22,12 @@ const PORT = 18800 + Math.floor(Math.random() * 800);
 const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clipshot-mcp-cfg-'));
 const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clipshot-mcp-out-'));
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'clipshot-mcp-home-'));
+// 失败/断言抛出也清理(洁癖收尾发现的 hygiene 问题)
+process.on('exit', () => {
+  for (const d of [cfgDir, outDir, fakeHome]) {
+    try { fs.rmSync(d, { recursive: true, force: true }); } catch (e) { /* noop */ }
+  }
+});
 fs.writeFileSync(path.join(cfgDir, 'relay.json'), JSON.stringify({ token: TOKEN, port: PORT, out: outDir }));
 const ENV = { ...process.env, CLIPSHOT_CONFIG_DIR: cfgDir, CLIPSHOT_OUT_DIR: outDir };
 
