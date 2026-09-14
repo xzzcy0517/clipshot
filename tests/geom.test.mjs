@@ -92,19 +92,27 @@ assert.deepEqual(geom.clampClip({ x: 10.4, y: 20.6, width: 30.5, height: 40.5 },
 /* ---------------- P003:pickEmulationScale / clampTotal / planVolumes ---------------- */
 const AREA = 60 * 1024 * 1024;
 assert.equal(geom.MAX_CAPTURE_DIM, 16000);
-// v0.4.2 用户真实案例:17756px 飞书页 @dpr1(1920 宽)——面积 34M 没超 60M,
-// 但单边 17756 > 16000 纹理上限 → 必须返回 0 走分段(否则尾部内容回绕成首屏)
-assert.equal(geom.pickEmulationScale(1920, 17756, 1, AREA), 0, '单边超限 → 0 → 分段');
-assert.equal(geom.pickEmulationScale(1857, 17756, 2, AREA), 0, 'dpr2 同样单边超限 → 0');
+assert.equal(geom.MIN_FULL_SCALE, 0.4);
+// v0.4.3 用户真实案例:17756px 飞书页 @dpr1(1920 宽)——单边超 16000,
+// 但降到 16000/17756≈0.9× 即可「单张完整」,不再走分段(用户决策:尽量单张)
+let sc = geom.pickEmulationScale(1920, 17756, 1, AREA);
+assert.ok(Math.abs(sc - 16000 / 17756) < 1e-6, `应降到单边恰好达标,实际 ${sc}`);
+assert.ok(17756 * sc <= 16000 + 1e-6, '降尺度后不得超纹理上限(否则尾部回绕)');
+sc = geom.pickEmulationScale(1857, 17756, 2, AREA);
+assert.ok(Math.abs(sc - 16000 / 17756) < 1e-6, 'dpr2 同样降到 ~0.9×');
 // 单边限制内、面积吃紧 → 降尺度
-let sc = geom.pickEmulationScale(800, 15900, 2, AREA);
+sc = geom.pickEmulationScale(800, 15900, 2, AREA);
 assert.ok(sc >= 1 && sc <= 16000 / 15900 + 1e-9, `应被单边约束到 ~1.006,实际 ${sc}`);
 // 常规页不降尺度
 assert.equal(geom.pickEmulationScale(1280, 6000, 2, AREA), 2);
 assert.equal(geom.pickEmulationScale(1920, 15000, 1, AREA), 1, '面积/单边都在限内 → 1×');
-assert.equal(geom.pickEmulationScale(1280, 90000, 2, AREA), 0, '连 1× 都放不下 → 0 → 走分段');
-// 自定义 maxDim 参数
-assert.equal(geom.pickEmulationScale(100, 5000, 1, AREA, 4000), 0);
+// 下限 0.4×:40000 CSS px 恰好可单张,40001 落分段
+assert.ok(Math.abs(geom.pickEmulationScale(1000, 40000, 1, AREA) - 0.4) < 1e-9);
+assert.equal(geom.pickEmulationScale(1000, 40001, 1, AREA), 0, '低于下限 → 0 → 走分段');
+assert.equal(geom.pickEmulationScale(1280, 90000, 2, AREA), 0, '极端超长 → 0 → 走分段');
+// 自定义 maxDim/minScale 参数
+assert.ok(Math.abs(geom.pickEmulationScale(100, 5000, 1, AREA, 4000) - 0.8) < 1e-9);
+assert.equal(geom.pickEmulationScale(100, 5000, 1, AREA, 4000, 0.9), 0, 'minScale=0.9 时 0.8 不可用');
 // clampTotal
 assert.deepEqual(geom.clampTotal(17756, 60000), { h: 17756, truncated: false, dropped: 0 });
 assert.deepEqual(geom.clampTotal(85000, 60000), { h: 60000, truncated: true, dropped: 25000 });

@@ -92,20 +92,28 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   geom.MAX_CAPTURE_DIM = 16000;
 
   /**
+   * 整幅降尺度下限(v0.4.3,用户决策「尽量单张、少拼接」):
+   * 允许仿真分辨率降到 0.4×,单张可覆盖到 MAX_CAPTURE_DIM/0.4 = 40000 CSS px;
+   * 低于下限清晰度对识图/人眼都无意义,才落分段。
+   */
+  geom.MIN_FULL_SCALE = 0.4;
+
+  /**
    * 整幅仿真可用的 deviceScaleFactor(P003 整幅优先):
    * 需同时满足 面积 (capW*s)×(capH*s) ≤ areaCap、单边 capW*s/capH*s ≤ maxDim;
-   * 取满足条件的最大 s,夹在 [1, dpr];连 s=1 都放不下时返回 0,调用方走分段。
+   * 取满足条件的最大 s,夹在 [minScale, dpr];连 minScale 都放不下时返回 0 → 分段。
    */
-  geom.pickEmulationScale = function (capW, capH, dpr, areaCap, maxDim) {
+  geom.pickEmulationScale = function (capW, capH, dpr, areaCap, maxDim, minScale) {
     if (!(capW > 0 && capH > 0 && dpr >= 1 && areaCap > 0)) return 0;
     const dimCap = maxDim > 0 ? maxDim : geom.MAX_CAPTURE_DIM;
+    const floor = minScale > 0 ? minScale : geom.MIN_FULL_SCALE;
     const s = Math.min(
       dpr,
       Math.sqrt(areaCap / (capW * capH)),
       dimCap / capH,
       dimCap / capW
     );
-    return s >= 1 ? s : 0;
+    return s >= floor ? s : 0;
   };
 
   /** 总长闸门(P003):超过 maxTotal 截断,返回 {h, truncated, dropped}。 */

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>ClipShot 夹具:超长页面(分段兜底)</title>
+<title>ClipShot 夹具:超长页面(降尺度单张 / 分段兜底)</title>
 <style>
   body { margin: 0; font: 14px system-ui; }
   .band { height: 1000px; display: flex; align-items: center; justify-content: center; font-size: 28px; color: #fff; }
@@ -10,7 +10,9 @@
 </style>
 </head>
 <body>
-<header>紫色 fixed 顶栏(分段模式应强制隐藏,长图里只允许出现 0 次)</header>
+<header>紫色 fixed 顶栏(隐藏开启时长图里只允许出现 0 次)</header>
+<!-- 30000px:v0.4.3 起 dpr1 下降尺度 ~0.53× 单张完整截取;把设置里「总长上限」调小
+     或 dpr 较高时才会落到分段兜底。验收:尾部 29000–30000 色带存在且非首屏内容。 -->
 <div id="wrap"></div>
 <script>
   // 30000 CSS px 高,每 1000px 一条色带与标签,肉眼检查分段拼接边界无重复/无缝隙
