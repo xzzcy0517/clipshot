@@ -101,32 +101,38 @@
 
   if (typeof document === 'undefined') return; // node 下只导出纯逻辑
 
-  /* ================ 编辑器实现 ================ */
+  /* ================ 编辑器实现(v0.8.1:选项条内联交互) ================ */
   const TOOLS = [
-    { id: 'rect', key: '1', glyph: '▭', tip: '方框(Shift 正方形)' },
-    { id: 'ellipse', key: '2', glyph: '◯', tip: '椭圆(Shift 正圆)' },
-    { id: 'arrow', key: '3', glyph: '↗', tip: '箭头(Shift 吸附15°)' },
-    { id: 'pen', key: '4', glyph: '✎', tip: '画笔' },
-    { id: 'mosaic', key: '5', glyph: '▦', tip: '马赛克(拖拽涂抹)' },
-    { id: 'text', key: '6', glyph: 'T', tip: '文字(点击落字,Enter 完成)' },
-    { id: 'highlight', key: '7', glyph: '⚡', tip: '高亮(半透明荧光条)' }
+    { id: 'rect', key: '1', glyph: '▭', tip: '方框(Shift 锁正方形)', kind: 'shape' },
+    { id: 'ellipse', key: '2', glyph: '◯', tip: '椭圆(Shift 锁正圆)', kind: 'shape' },
+    { id: 'arrow', key: '3', glyph: '↗', tip: '箭头(Shift 吸附 15°)', kind: 'shape' },
+    { id: 'pen', key: '4', glyph: '✎', tip: '画笔', kind: 'shape' },
+    { id: 'mosaic', key: '5', glyph: '▦', tip: '马赛克(涂抹背景像素格)', kind: 'mosaic' },
+    { id: 'text', key: '6', glyph: 'T', tip: '文字(点击输入,Enter 完成)', kind: 'text' },
+    { id: 'highlight', key: '7', glyph: '⚡', tip: '高亮(半透明荧光条)', kind: 'highlight' }
   ];
+  // 线宽标准按网页正文 14–16px 定:细=2 中=3 粗=5(图像像素);高亮/马赛克带按视觉需要加宽
+  const TIERS = { shape: [2, 3, 5], mosaic: [16, 28, 44], highlight: [14, 22, 32], text: [14, 20, 28] };
   const COLORS = ['#f5222d', '#fa8c16', '#fadb14', '#52c41a', '#1677ff', '#722ed1', '#111111', '#ffffff'];
-  const WIDTH_TIERS = { shape: [3, 6, 12], brush: [16, 28, 48], highlight: [22, 36, 56], text: [14, 20, 28] };
   const MOSAIC_CELL = 12;
+  const TIER_LABELS = ['细', '中', '粗'];
 
   const $ = (id) => document.getElementById(id);
-  let overlay = null, ctx = null, stage = null, bar = null, previewBar = null;
+  let overlay = null, ctx = null, stage = null, bar = null, previewBar = null, pop = null;
   let mode = 'preview';
-  let tool = 'rect', colorIdx = 0, tier = 1;
+  let tool = 'rect';
+  const tierByKind = { shape: 1, mosaic: 1, highlight: 1, text: 1 };
+  let colorIdx = 0;
   const targets = new Map(); // imgEl → {imgEl, blob, bmp, natW, natH, store, name}
-  const order = [];          // 挂载顺序(第一个=主图)
-  let drag = null;           // 正在画的预览标注
+  const order = [];
+  let drag = null;
   let textInput = null;
   let raf = 0;
+  let hasMain = false;
 
+  function toolDef(id) { return TOOLS.find((t) => t.id === id); }
   function curColor() { return COLORS[colorIdx]; }
-  function curWidth(kind) { const t = WIDTH_TIERS[kind]; return t[P.clamp(tier, 0, t.length - 1)]; }
+  function curWidth(kind) { const t = TIERS[kind]; return t[tierByKind[kind] || 0]; }
 
   function ensureDom() {
     if (overlay) return true;
@@ -134,7 +140,10 @@
     if (!overlay || !stage || !bar || !previewBar) return false;
     ctx = overlay.getContext('2d');
     buildToolbar();
-    window.addEventListener('resize', requestRedraw);
+    pop = document.createElement('div');
+    pop.id = 'eb-pop';
+    document.body.appendChild(pop);
+    window.addEventListener('resize', () => { requestRedraw(); closePop(); });
     stage.addEventListener('scroll', requestRedraw, { passive: true });
     window.addEventListener('scroll', requestRedraw, { passive: true });
     stage.addEventListener('pointerdown', onPointerDown);
@@ -148,82 +157,88 @@
     const frag = document.createDocumentFragment();
     for (const t of TOOLS) {
       const b = document.createElement('button');
-      b.dataset.tool = t.id; b.textContent = t.glyph; b.title = t.tip + ' (快捷键 ' + t.key + ')';
-      b.addEventListener('click', () => setTool(t.id));
+      b.dataset.tool = t.id; b.textContent = t.glyph;
+      b.title = t.tip + '(快捷键 ' + t.key + ',再点一次展开/收起选项)';
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (tool === t.id && pop.style.display === 'flex') { closePop(); return; }
+        setTool(t.id);
+        openPop(t, b);
+      });
       frag.appendChild(b);
     }
     const sep = () => { const s = document.createElement('span'); s.className = 'esep'; return s; };
-    frag.appendChild(sep());
-    const colorBtn = document.createElement('button');
-    colorBtn.id = 'eb-color'; colorBtn.title = '颜色(点击切换,展开选色)';
-    colorBtn.innerHTML = '<span class="cdot"></span><span class="cmenu"></span>';
-    colorBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const menu = colorBtn.querySelector('.cmenu');
-      const open = menu.classList.toggle('on');
-      if (open && !menu.childElementCount) {
-        COLORS.forEach((c, i) => {
-          const d = document.createElement('i');
-          d.style.background = c;
-          d.addEventListener('click', (ev) => { ev.stopPropagation(); colorIdx = i; syncColorBtn(); menu.classList.remove('on'); requestRedraw(); });
-          menu.appendChild(d);
-        });
-      }
-      if (!open) return;
-      const off = () => { menu.classList.remove('on'); document.removeEventListener('pointerdown', off); };
-      document.addEventListener('pointerdown', off);
-    });
-    frag.appendChild(colorBtn);
-    const wBtn = document.createElement('button');
-    wBtn.id = 'eb-width'; wBtn.title = '粗细/字号档(点击循环 细/中/粗;文字工具对应 14/20/28)';
-    wBtn.addEventListener('click', () => { tier = (tier + 1) % 3; syncWidthBtn(); requestRedraw(); });
-    frag.appendChild(wBtn);
-    frag.appendChild(sep());
     const mk = (id, txt, tip, fn) => {
       const b = document.createElement('button');
       b.id = id; b.textContent = txt; b.title = tip; b.addEventListener('click', fn);
       frag.appendChild(b); return b;
     };
-    mk('eb-undo', '↶', '撤销 (Ctrl/Cmd+Z)', doUndo);
-    mk('eb-redo', '↷', '重做 (Ctrl/Cmd+Shift+Z)', doRedo);
-    mk('eb-reset', '还原', '清除全部标注(可撤销)', doReset);
     frag.appendChild(sep());
-    mk('eb-copy', '复制', '复制带标注图片到剪贴板', () => emit('copy'));
-    mk('eb-download', '下载', '下载带标注图片', () => emit('download'));
+    mk('eb-undo', '↶ 撤销', '撤销上一个标注/还原操作(Ctrl/Cmd+Z)', doUndo);
+    mk('eb-reset', '还原', '清除全部标注回到原图(可再撤销回来)', doReset);
+    frag.appendChild(sep());
+    mk('eb-copy', '复制', '复制当前呈现(含标注)到剪贴板', () => emit('copy'));
+    mk('eb-download', '下载', '下载当前呈现(含标注)', () => emit('download'));
     const done = document.createElement('button');
-    done.id = 'eb-done'; done.className = 'primary'; done.textContent = '✔ 完成'; done.title = '结束编辑 (Enter / Esc),标注保留';
+    done.id = 'eb-done'; done.className = 'primary'; done.textContent = '✔ 完成';
+    done.title = '结束编辑(Enter / Esc),标注保留,可再点「编辑」继续';
     done.addEventListener('click', () => setMode('preview'));
     frag.appendChild(done);
     bar.appendChild(frag);
-    syncColorBtn(); syncWidthBtn();
   }
-  function syncColorBtn() {
-    const b = $('eb-color'); if (!b) return;
-    b.querySelector('.cdot').style.background = curColor();
+
+  /* -------- 工具下方的选项条:粗细(字号)+ 常用色,即选即生效 -------- */
+  function openPop(def, anchorBtn) {
+    closePop();
+    const kind = def.kind;
+    let html = '';
+    TIERS[kind].forEach((w, i) => {
+      html += '<button class="tier' + (i === tierByKind[kind] ? ' on' : '') + '" data-t="' + i + '">' +
+        (kind === 'text' ? w + 'px' : TIER_LABELS[i]) + '</button>';
+    });
+    html += '<span class="psp"></span>';
+    if (kind !== 'mosaic') {
+      COLORS.forEach((c, i) => {
+        html += '<i class="pcolor' + (i === colorIdx ? ' on' : '') + '" data-c="' + i + '" style="background:' + c + '" title="常用色"></i>';
+      });
+    } else {
+      html += '<span class="phint">马赛克无颜色(采样画面像素)</span>';
+    }
+    pop.innerHTML = html;
+    pop.style.display = 'flex';
+    const r = anchorBtn.getBoundingClientRect();
+    pop.style.left = Math.max(6, Math.min(r.left - 30, innerWidth - pop.offsetWidth - 8)) + 'px';
+    pop.style.top = (r.bottom + 6) + 'px';
+    pop.querySelectorAll('.tier').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      tierByKind[kind] = +b.dataset.t;
+      closePop();
+    }));
+    pop.querySelectorAll('.pcolor').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      colorIdx = +b.dataset.c;
+      closePop();
+    }));
   }
-  function syncWidthBtn() {
-    const b = $('eb-width'); if (!b) return;
-    b.textContent = ['─', '━', '▊'][tier];
-  }
+  function closePop() { if (pop) { pop.style.display = 'none'; pop.innerHTML = ''; } }
 
   function setTool(id) {
     tool = id;
     for (const b of bar.querySelectorAll('[data-tool]')) b.classList.toggle('on', b.dataset.tool === id);
     document.body.dataset.tool = id;
     if (id !== 'text') commitText();
+    requestRedraw();
   }
 
-  let hasMain = false; // 是否存在主图(单张/合成场景);分卷列表场景由 preview.js 关闭底栏
   function setMode(m) {
     if (m === mode) return;
     if (m === 'edit' && !order.length) return;
     mode = m;
     document.body.classList.toggle('editing', m === 'edit');
-    const barEl = $('editbar'), pbarEl = $('previewbar');
-    if (barEl) barEl.style.display = m === 'edit' ? 'flex' : 'none';
-    if (pbarEl) pbarEl.style.display = (m !== 'edit' && hasMain) ? 'flex' : 'none';
+    if (bar) bar.style.display = m === 'edit' ? 'flex' : 'none';
+    if (previewBar) previewBar.style.display = (m !== 'edit' && hasMain) ? 'flex' : 'none';
     if (m === 'edit') { setTool(tool); }
-    else { commitText(); drag = null; }
+    else { commitText(); closePop(); drag = null; }
     requestRedraw();
   }
 
@@ -241,11 +256,15 @@
     if (raf || !ctx) return;
     raf = requestAnimationFrame(() => { raf = 0; redraw(); });
   }
+  function viewOf(t) {
+    const rect = t.imgEl.getBoundingClientRect();
+    return { rect, natW: t.natW, natH: t.natH, bmp: t.bmp, s: t.natW ? rect.width / t.natW : 0 };
+  }
   function redraw() {
     const dpr = window.devicePixelRatio || 1;
     const w = innerWidth, h = innerHeight;
-    if (overlay.width !== w * dpr || overlay.height !== h * dpr) {
-      overlay.width = w * dpr; overlay.height = h * dpr;
+    if (overlay.width !== Math.round(w * dpr) || overlay.height !== Math.round(h * dpr)) {
+      overlay.width = Math.round(w * dpr); overlay.height = Math.round(h * dpr);
       overlay.style.width = w + 'px'; overlay.style.height = h + 'px';
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -253,15 +272,17 @@
     for (const imgEl of order) {
       const t = targets.get(imgEl);
       if (!t || !t.bmp || !t.store.anns.length) continue;
-      const rect = imgEl.getBoundingClientRect();
-      if (rect.bottom < 0 || rect.top > h || rect.right < 0 || rect.left > w) continue;
-      const view = { rect, natW: t.natW, natH: t.natH, bmp: t.bmp, s: rect.width / t.natW };
+      const view = viewOf(t);
+      if (view.rect.bottom < 0 || view.rect.top > h || view.rect.right < 0 || view.rect.left > w) continue;
       for (const a of t.store.anns) drawAnn(ctx, a, view);
     }
-    if (drag) { const t = targets.get(drag.imgEl); if (t && t.bmp) drawAnn(ctx, drag.ann, { rect: t.imgEl.getBoundingClientRect(), natW: t.natW, natH: t.natH, bmp: t.bmp, s: t.imgEl.getBoundingClientRect().width / t.natW }); }
+    if (drag && drag.ann) {
+      const t = targets.get(drag.imgEl);
+      if (t && t.bmp) drawAnn(ctx, drag.ann, viewOf(t));
+    }
   }
 
-  function M(view) { // 图像px → screen px 闭包
+  function M(view) {
     return {
       x: (ix) => view.rect.left + ix * view.s,
       y: (iy) => view.rect.top + iy * view.s,
@@ -270,22 +291,23 @@
   }
 
   function drawAnn(c, a, view) {
+    if (!a) return;
     const m = M(view);
     c.save();
     c.lineCap = 'round'; c.lineJoin = 'round';
     const col = a.color || '#f5222d';
     if (a.tool === 'rect') {
-      c.strokeStyle = col; c.lineWidth = m.v(a.w);
+      c.strokeStyle = col; c.lineWidth = Math.max(1, m.v(a.w));
       c.strokeRect(m.x(a.x), m.y(a.y), m.v(a.bw), m.v(a.bh));
     } else if (a.tool === 'ellipse') {
-      c.strokeStyle = col; c.lineWidth = m.v(a.w);
+      c.strokeStyle = col; c.lineWidth = Math.max(1, m.v(a.w));
       c.beginPath();
       c.ellipse(m.x(a.x + a.bw / 2), m.y(a.y + a.bh / 2), Math.max(1, m.v(a.bw / 2)), Math.max(1, m.v(a.bh / 2)), 0, 0, Math.PI * 2);
       c.stroke();
     } else if (a.tool === 'arrow') {
       drawArrow(c, a.x0, a.y0, a.x1, a.y1, m, col, Math.max(1.5, m.v(a.w)));
     } else if (a.tool === 'pen') {
-      c.strokeStyle = col; c.lineWidth = m.v(a.w);
+      c.strokeStyle = col; c.lineWidth = Math.max(1, m.v(a.w));
       path(c, a.pts, m); c.stroke();
     } else if (a.tool === 'highlight') {
       c.strokeStyle = col; c.globalAlpha = 0.5; c.lineWidth = m.v(a.w);
@@ -305,15 +327,15 @@
     c.moveTo(m.x(pts[0].x), m.y(pts[0].y));
     for (let i = 1; i < pts.length; i++) c.lineTo(m.x(pts[i].x), m.y(pts[i].y));
   }
-  function drawArrow(c, x0, y0, x1, y1, m, col, lwScreen) {
+  function drawArrow(c, x0, y0, x1, y1, m, col, lw) {
     const sx = m.x(x0), sy = m.y(y0), ex = m.x(x1), ey = m.y(y1);
     const ang = Math.atan2(ey - sy, ex - sx);
     const dist = Math.hypot(ex - sx, ey - sy);
-    const head = Math.min(dist * 0.4, Math.max(8, lwScreen * 4.2));
-    c.strokeStyle = col; c.fillStyle = col; c.lineWidth = lwScreen;
+    const head = Math.min(dist * 0.4, Math.max(8, lw * 3.6));
+    c.strokeStyle = col; c.fillStyle = col; c.lineWidth = lw;
     c.beginPath();
     c.moveTo(sx, sy);
-    c.lineTo(ex - Math.cos(ang) * head * 0.7, ey - Math.sin(ang) * head * 0.7);
+    c.lineTo(ex - Math.cos(ang) * head * 0.75, ey - Math.sin(ang) * head * 0.75);
     c.stroke();
     c.beginPath();
     c.moveTo(ex, ey);
@@ -323,58 +345,63 @@
     c.closePath(); c.fill();
   }
 
-  /** 马赛克:按 bbox 降采样再放大(smoothing off),按笔刷轨迹做 destination-in 遮罩 */
-  function paintMosaic(c, a, view, m) {
+  /** 背景采样马赛克:bbox 降采样为格子色板,笔带内的格子按屏幕方块填色(实时/导出同算法) */
+  function mosaicPalette(t, a) {
+    if (a._pal && a._pal.nat === t.natW) return a._pal;
     const bb = P.pathBBox(a.pts, a.w / 2);
-    const clipX0 = Math.max(0, bb.x), clipY0 = Math.max(0, bb.y);
-    const clipX1 = Math.min(view.natW, bb.x + bb.w), clipY1 = Math.min(view.natH, bb.y + bb.h);
-    if (!(clipX1 > clipX0 && clipY1 > clipY0)) return;
-    const iw = clipX1 - clipX0, ih = clipY1 - clipY0;
-    const sw = Math.max(1, Math.round(m.v(iw))), sh = Math.max(1, Math.round(m.v(ih)));
-    if (sw * sh > 4e7) return; // 屏上面积极大的极端情况保护
-    // 1) 低分辨率像素块源
-    const cols = Math.max(1, Math.round(iw / MOSAIC_CELL)), rows = Math.max(1, Math.round(ih / MOSAIC_CELL));
+    const x0 = P.clamp(bb.x, 0, t.natW), y0 = P.clamp(bb.y, 0, t.natH);
+    const x1 = P.clamp(bb.x + bb.w, 0, t.natW), y1 = P.clamp(bb.y + bb.h, 0, t.natH);
+    if (!(x1 > x0 && y1 > y0)) return null;
+    const cols = P.clamp(Math.ceil((x1 - x0) / MOSAIC_CELL), 1, 480);
+    const rows = P.clamp(Math.ceil((y1 - y0) / MOSAIC_CELL), 1, 480);
     const low = document.createElement('canvas'); low.width = cols; low.height = rows;
     const lc = low.getContext('2d');
-    lc.drawImage(view.bmp, clipX0, clipY0, iw, ih, 0, 0, cols, rows);
-    const big = document.createElement('canvas'); big.width = sw; big.height = sh;
-    const bc = big.getContext('2d');
-    bc.imageSmoothingEnabled = false;
-    bc.drawImage(low, 0, 0, cols, rows, 0, 0, sw, sh);
-    // 2) 轨迹遮罩
-    const mask = document.createElement('canvas'); mask.width = sw; mask.height = sh;
-    const mc = mask.getContext('2d');
-    mc.strokeStyle = '#000'; mc.lineWidth = Math.max(2, m.v(a.w)); mc.lineCap = 'round'; mc.lineJoin = 'round';
-    mc.beginPath();
-    mc.moveTo(m.x(a.pts[0].x) - m.x(clipX0), m.y(a.pts[0].y) - m.y(clipY0));
-    for (let i = 1; i < a.pts.length; i++) mc.lineTo(m.x(a.pts[i].x) - m.x(clipX0), m.y(a.pts[i].y) - m.y(clipY0));
-    mc.stroke();
-    mc.globalCompositeOperation = 'destination-in';
-    mc.drawImage(big, 0, 0);
-    c.drawImage(mask, m.x(clipX0), m.y(clipY0), sw, sh);
+    lc.drawImage(t.bmp, x0, y0, x1 - x0, y1 - y0, 0, 0, cols, rows);
+    const data = lc.getImageData(0, 0, cols, rows).data;
+    a._pal = { x0, y0, x1, y1, cols, rows, data, nat: t.natW };
+    return a._pal;
+  }
+  function paintMosaic(c, a, view, m) {
+    const t = { bmp: view.bmp, natW: view.natW };
+    const pal = mosaicPalette(t, a);
+    if (!pal) return;
+    const cw = (pal.x1 - pal.x0) / pal.cols, ch = (pal.y1 - pal.y0) / pal.rows;
+    const half = a.w / 2;
+    for (let gy = 0; gy < pal.rows; gy++) {
+      const cy = pal.y0 + (gy + 0.5) * ch;
+      for (let gx = 0; gx < pal.cols; gx++) {
+        const cx = pal.x0 + (gx + 0.5) * cw;
+        if (!P.inStroke(a.pts, cx, cy, half)) continue;
+        const i = (gy * pal.cols + gx) * 4;
+        c.fillStyle = 'rgb(' + pal.data[i] + ',' + pal.data[i + 1] + ',' + pal.data[i + 2] + ')';
+        c.fillRect(m.x(pal.x0 + gx * cw), m.y(pal.y0 + gy * ch), Math.max(1, m.v(cw)), Math.max(1, m.v(ch)));
+      }
+    }
   }
 
   /* ---------------- 指针交互 ---------------- */
   function mainTarget() { const el = order[0]; return el && targets.get(el); }
   function eventImg(e) {
     for (const el of order) {
+      const t = targets.get(el);
+      if (!t || !t.bmp) continue;
       const r = el.getBoundingClientRect();
       if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-        return { t: targets.get(el), rect: r, pt: P.screenToImg(e.clientX, e.clientY, r, targets.get(el).natW, targets.get(el).natH) };
+        return { t, rect: r, pt: P.screenToImg(e.clientX, e.clientY, r, t.natW, t.natH) };
       }
     }
     return null;
   }
-
   function onPointerDown(e) {
-    if (mode !== 'edit' || e.button !== 0 || bar.contains(e.target)) return;
+    if (mode !== 'edit' || e.button !== 0) return;
+    if ((bar && bar.contains(e.target)) || (pop && pop.contains(e.target))) { return; }
+    closePop();
     const hit = eventImg(e);
-    if (!hit || !hit.t.bmp) return;
+    if (!hit) return;
     if (tool === 'text') { commitText(); openText(hit.t, hit.pt); return; }
     commitText();
-    const kind = tool === 'pen' || tool === 'mosaic' || tool === 'highlight' ? 'brush' : 'shape';
     drag = {
-      imgEl: hit.t.imgEl, tool, kind, shift: e.shiftKey,
+      imgEl: hit.t.imgEl, tool, kind: toolDef(tool).kind, shift: e.shiftKey,
       x0: hit.pt.x, y0: hit.pt.y, x1: hit.pt.x, y1: hit.pt.y,
       pts: [{ x: hit.pt.x, y: hit.pt.y }],
       ann: null
@@ -387,7 +414,7 @@
     const rect = t.imgEl.getBoundingClientRect();
     const p = P.screenToImg(e.clientX, e.clientY, rect, t.natW, t.natH);
     drag.x1 = p.x; drag.y1 = p.y; drag.shift = e.shiftKey;
-    if (drag.kind === 'brush') {
+    if (drag.kind === 'mosaic' || drag.tool === 'pen' || drag.tool === 'highlight') {
       const last = drag.pts[drag.pts.length - 1];
       if (Math.hypot(p.x - last.x, p.y - last.y) > 2) drag.pts.push({ x: p.x, y: p.y });
     }
@@ -399,8 +426,8 @@
     const ann = buildDragAnn();
     const t = targets.get(drag.imgEl);
     drag = null;
-    if (ann && t) { t.store.add(ann); requestRedraw(); }
-    else requestRedraw();
+    if (ann && t) t.store.add(ann);
+    requestRedraw();
   }
   function buildDragAnn() {
     if (!drag) return null;
@@ -416,10 +443,17 @@
       if (Math.hypot(x1 - drag.x0, y1 - drag.y0) < 3) return null;
       return Object.assign(base, { x0: drag.x0, y0: drag.y0, x1, y1, w: curWidth('shape') });
     }
-    if (drag.kind === 'brush') {
-      const wKind = drag.tool === 'highlight' ? 'highlight' : 'brush';
+    if (drag.tool === 'pen') {
       if (drag.pts.length < 2) return null;
-      return Object.assign(base, { pts: drag.pts.map((p) => ({ x: p.x, y: p.y })), w: curWidth(wKind) });
+      return Object.assign(base, { pts: drag.pts.map((p) => ({ x: p.x, y: p.y })), w: curWidth('shape') });
+    }
+    if (drag.tool === 'highlight') {
+      if (drag.pts.length < 2) return null;
+      return Object.assign(base, { pts: drag.pts.map((p) => ({ x: p.x, y: p.y })), w: curWidth('highlight') });
+    }
+    if (drag.tool === 'mosaic') {
+      if (drag.pts.length < 1) return null;
+      return { tool: 'mosaic', pts: drag.pts.map((p) => ({ x: p.x, y: p.y })), w: curWidth('mosaic') };
     }
     return null;
   }
@@ -447,9 +481,10 @@
     if (!textInput) return;
     const { inp, t, pt } = textInput;
     const v = inp.value.trim();
+    const fs = curWidth('text');
     textInput = null; inp.remove();
     if (v) {
-      t.store.add({ tool: 'text', x: pt.x, y: pt.y, text: v, color: curColor(), fs: curWidth('text') });
+      t.store.add({ tool: 'text', x: pt.x, y: pt.y, text: v, color: curColor(), fs });
       requestRedraw();
     }
   }
@@ -458,7 +493,7 @@
   function activeTargets() { return order.map((el) => targets.get(el)).filter(Boolean); }
   function doUndo() { for (const t of activeTargets()) if (t.store.undo()) break; requestRedraw(); }
   function doRedo() { for (const t of activeTargets()) if (t.store.redo()) break; requestRedraw(); }
-  function doReset() { for (const t of activeTargets()) t.store.clearAll(); requestRedraw(); }
+  function doReset() { let hit = false; for (const t of activeTargets()) if (t.store.clearAll()) hit = true; if (hit) requestRedraw(); }
 
   /* ---------------- 键盘 ---------------- */
   function onKey(e) {
@@ -469,13 +504,14 @@
       if (meta && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); doRedo(); return; }
       if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); setMode('preview'); return; }
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); doUndo(); return; }
+      if (meta && e.key === 'c') return; // 让宿主复制
+      if (/^[1-7]$/.test(e.key)) {
+        const td = TOOLS.find((x) => x.key === e.key);
+        if (td) { setTool(td.id); closePop(); }
+        return;
+      }
     } else if (e.key === 'e' || e.key === 'E') {
-      const t = mainTarget(); if (t) { setMode('edit'); }
-      return;
-    }
-    if (mode === 'edit' && /^[1-7]$/.test(e.key)) {
-      const td = TOOLS.find((x) => x.key === e.key);
-      if (td) setTool(td.id);
+      if (order.length) setMode('edit');
     }
   }
 
@@ -483,21 +519,18 @@
   async function exportBlob(imgEl) {
     const t = imgEl ? targets.get(imgEl) : mainTarget();
     if (!t || !t.bmp) return null;
-    if (!t.store.anns.length) return null; // 当前无标注 → 原 blob(所见即所得 + 零回归)
+    if (!t.store.anns.length) return null;
     const c = document.createElement('canvas');
     c.width = t.natW; c.height = t.natH;
     const cc = c.getContext('2d');
     cc.drawImage(t.bmp, 0, 0);
     const view = { rect: { left: 0, top: 0, width: t.natW }, natW: t.natW, natH: t.natH, bmp: t.bmp, s: 1 };
-    // 导出态:map 直接以图像像素为单位(rect 宽=natW,s=1)
-    view.x = 0;
-    for (const a of t.store.anns) drawAnn(cc, a, view);
+    for (const a of t.store.anns) { a._pal = null; drawAnn(cc, a, view); }
     return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('合成失败'))), 'image/png'));
   }
 
   function emit(kind) {
-    const t = mainTarget();
-    CS.Edit._emit && CS.Edit._emit(kind, t);
+    CS.Edit._emit && CS.Edit._emit(kind, mainTarget());
   }
 
   CS.Edit = {
