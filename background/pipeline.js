@@ -116,7 +116,11 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     if (jobsByTab.size >= MAX_CONCURRENT) return { ok: false, error: ERR.BUSY };
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!tab) return { ok: false, error: ERR.NO_TARGET };
-    try { assertUsable(tab); } catch (e) { return { ok: false, error: codeOf(e) }; }
+    // v0.7.1:可视区截图对任何页面都合法(captureVisibleTab 不区分页面类型);
+    // 整页/元素/框选需要注入或调试器,内部页仍拦截
+    if (mode !== 'visible') {
+      try { assertUsable(tab); } catch (e) { return { ok: false, error: codeOf(e) }; }
+    }
     const job = {
       id: crypto.randomUUID(), tabId, mode, opts: opts || {},
       phase: 'check', pct: 0, startedAt: Date.now(),
@@ -625,7 +629,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
 
   async function runVisible(job) {
     const tab = await chrome.tabs.get(job.tabId);
-    assertUsable(tab);
+    if (tab.discarded) throw mkErr(ERR.CONTENT_DEAD); // 休眠页无渲染可截
     phase(job, 'capture', 50);
     const s = job.settings;
     const dataUrl = await CS.cdp.withTimeout(

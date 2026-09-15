@@ -9,7 +9,7 @@
  */
 globalThis.ClipShot = globalThis.ClipShot || {};
 (function (CS) {
-  CS.EXT_VER = '0.7.0';
+  CS.EXT_VER = '0.7.1';
 
   /** 一次性消息类型(request/response) */
   CS.MSG = {
@@ -71,7 +71,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   /** 中文文案表 —— popup / preview / 通知只按码显示 */
   CS.ERR_TEXT = {
     BUSY: '该标签页正在截图中,请等待当前任务完成',
-    PAGE_NOT_ALLOWED: '此页面不允许截图,请在普通网页使用',
+    PAGE_NOT_ALLOWED: '浏览器内部页(chrome://、扩展页、商店、PDF 查看器)无法注入脚本:整页/元素/框选不可用,请改用「可视区域截图」(任何页面都可截当前屏)',
     CONTENT_DEAD: '页面脚本未就绪,请刷新该页面后再试',
     DEVTOOLS_CONFLICT: '请先关闭该标签页的开发者工具(F12),再重试',
     ATTACH_FAIL: '无法建立调试会话,截图失败',
