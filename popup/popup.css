@@ -20,9 +20,9 @@ h1 { font-size: 15px; margin: 0 0 10px; }
   padding: 9px 12px; border-radius: 8px; border: 1px solid #ccd2dd;
   background: #fff; cursor: pointer; font-size: 13px;
 }
-.btns button:hover { border-color: #2f6fe4; }
+.btns button:hover:not([disabled]) { border-color: #2f6fe4; }
+.btns button[disabled] { opacity: .42; cursor: not-allowed; }
 .btns button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
-.kbd { font-size: 11px; opacity: .65; font-family: ui-monospace, monospace; }
 .hint { margin-top: 10px; font-size: 12px; opacity: .75; }
 .progress { margin-top: 10px; }
 .progress.hidden { display: none; }

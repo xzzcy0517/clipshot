@@ -11,12 +11,38 @@
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     activeTabId = tab && tab.id;
+    applyCapability(tab);
 
     const st = await chrome.runtime.sendMessage({ type: CS.MSG.STATE_GET });
     if (st && st.ok) {
       const busy = st.busyTabs.find(t => t.tabId === activeTabId);
       if (busy) showProgress(busy.phase, busy.pct, '该标签页正在截图中');
     }
+  }
+
+  // ── 页面能力识别(v0.7.2):与 pipeline.BAD_SCHEMES 同规则;禁用按钮 + 悬停提示原因 ──
+  const BAD_SCHEMES = /^(chrome|edge|devtools|view-source|chrome-extension|chromewebstore|about|brave):/i;
+  function applyCapability(tab) {
+    const url = (tab && (tab.url || tab.pendingUrl)) || '';
+    const special = !tab || BAD_SCHEMES.test(url);
+    const isFile = /^file:/.test(url);
+    setDisabled('btn-full', special,
+      'Chrome 禁止扩展向浏览器内部页注入脚本,整页滚动截图不可用\n→ 请改用「可视区域截图」(任何页面可用)');
+    setDisabled('btn-region', special,
+      '框选需要在页面内绘制选区,浏览器内部页不支持注入\n→ 请改用「可视区域截图」');
+    if (isFile) {
+      // 文件页不禁用,但提示前置条件
+      $('btn-full').title = '本地文件页需先在扩展详情页开启「允许访问文件网址」';
+      $('btn-region').title = $('btn-full').title;
+    }
+    $('hint').textContent = special
+      ? '当前是浏览器内部页:仅「可视区域截图」可用(右键截元素同样需要注入,不可用)。'
+      : '截取单个元素:在目标元素上右键 → 「ClipShot:截取此元素」';
+  }
+  function setDisabled(id, off, why) {
+    const el = $(id);
+    el.disabled = off;
+    el.title = off ? why : '';
   }
 
   $('format').addEventListener('change', () => CS.saveSettings({ format: $('format').value }));
