@@ -327,7 +327,8 @@
 <style>
   :host{all:unset}
   .root{position:fixed;inset:0;overflow:hidden}
-  .hole{position:absolute;display:none;border:1.5px dashed #4f8cff;background:rgba(79,140,255,.06);box-shadow:0 0 0 200000px rgba(0,0,0,.35)}
+  /* v0.7.3:无描边无蓝底——选区靠四周压暗的对比呈现,尺寸角标给出精确反馈 */
+  .hole{position:absolute;display:none;box-shadow:0 0 0 200000px rgba(0,0,0,.35)}
   .tip{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:rgba(20,24,32,.85);color:#fff;font:13px/1.6 system-ui,sans-serif;padding:6px 14px;border-radius:6px;pointer-events:none;white-space:nowrap}
   .size{position:absolute;font:12px/1.4 system-ui,sans-serif;color:#fff;background:rgba(20,24,32,.85);padding:2px 8px;border-radius:4px;pointer-events:none;display:none;white-space:nowrap}
 </style>
