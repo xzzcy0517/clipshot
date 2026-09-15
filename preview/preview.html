@@ -17,11 +17,11 @@
       <button id="zoom-100">100%</button>
       <button id="zoom-in" title="放大">＋</button>
       <span id="zoom-label" class="info"></span>
-      <span class="sep"></span>
-      <button id="btn-copy">复制到剪贴板</button>
-      <button id="btn-download" class="primary">下载</button>
     </div>
   </header>
+
+  <!-- 编辑态工具栏(P007):默认隐藏,由 edit.js 填充 -->
+  <div id="editbar"></div>
 
   <div id="notes"></div>
   <div id="status" class="status hidden"></div>
@@ -30,9 +30,19 @@
     <div id="wrap"></div>
   </main>
 
+  <!-- 预览态动作栏:想编辑才点「编辑」,否则复制/下载直接走 -->
+  <div id="previewbar">
+    <button id="btn-edit" class="primary" title="像微信一样标注(快捷键 E)">✎ 编辑</button>
+    <button id="btn-copy" title="复制当前呈现(含标注)到剪贴板">复制</button>
+    <button id="btn-download" title="下载当前呈现(含标注)">下载</button>
+  </div>
+
+  <canvas id="editlayer"></canvas>
+
   <script src="../common/messages.js"></script>
   <script src="../common/geom.js"></script>
   <script src="../common/naming.js"></script>
+  <script src="edit.js"></script>
   <script src="preview.js"></script>
 </body>
 </html>

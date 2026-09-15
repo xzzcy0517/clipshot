@@ -1,15 +1,17 @@
 'use strict';
 /**
- * 预览页:通过 meta → chunk 分块拉取 SW 内存暂存的截图,
- * 多段时按各段实际解码高度堆叠拼接;提供缩放/下载/复制剪贴板。
+ * 预览页:meta → chunk 分块拉取 SW 暂存截图;多段按解码高度堆叠/分卷;
+ * 缩放/下载/复制 + P007 微信式编辑(双状态:默认预览态,点「编辑」才出工具栏)。
+ * 编辑逻辑在 edit.js;导出所见即所得,无标注时与旧版行为逐字节一致。
  */
 (function () {
   const CS = globalThis.ClipShot;
+  const Edit = CS.Edit;
   const $ = (id) => document.getElementById(id);
   const jobId = new URLSearchParams(location.search).get('job');
 
   let meta = null;
-  let currentBlob = null;   // 最终展示/下载用的 blob
+  let currentBlob = null;   // 主图原始 blob(未编辑时导出直通它)
   let scale = 1;            // 1 = 页面的 CSS 尺寸(设备像素 / dpr)
   let imgEl = null;
   let naturalW = 0, naturalH = 0; // 设备像素
@@ -65,14 +67,15 @@
       naturalW = imgEl.naturalWidth; naturalH = imgEl.naturalHeight;
       renderInfo();
       zoomFit();
+      Edit.mount(imgEl, blob, meta.name);
+      Edit.setHasMain(true);
     };
     $('wrap').appendChild(imgEl);
   }
 
   /**
-   * 多段合成(P003 分卷):先按各段实际解码高度做装箱(每卷累计 ≤30000 设备 px),
-   * 一卷能装下全部 → 单张合成长图;否则每卷一张(按序即整图),人可逐卷下载查看。
-   * 装箱/合成仍失败(单段超限等)→ 退化为逐段列表(原兜底保留)。
+   * 多段合成(P003 分卷):按各段实际解码高度装箱(每卷 ≤30000 设备 px),
+   * 一卷装下全部 → 单张合成长图;否则每卷一张。装箱失败退化为逐段列表。
    */
   async function composeSegments(blobs) {
     try {
@@ -102,51 +105,59 @@
         const v = vols[vi];
         const blob = await compose(v.from, v.count);
         if (vi === 0) currentBlob = blob;
-        const item = document.createElement('div');
-        item.className = 'seg-item';
-        const cap = document.createElement('div');
-        cap.className = 'cap';
-        cap.textContent = `第 ${vi + 1} / ${vols.length} 卷(${v.count} 段,${v.height} px)`;
-        const dl = document.createElement('button');
-        dl.textContent = '下载本卷';
-        dl.addEventListener('click', () => downloadBlob(blob, dotName(meta.name, `-vol${vi + 1}`)));
-        cap.appendChild(dl);
-        const img = new Image();
-        img.src = URL.createObjectURL(blob);
-        item.appendChild(cap); item.appendChild(img);
+        const item = buildSegItem(`第 ${vi + 1} / ${vols.length} 卷(${v.count} 段,${v.height} px)`,
+          blob, dotName(meta.name, `-vol${vi + 1}`));
         list.appendChild(item);
       }
       $('wrap').appendChild(list);
-      addNote('整图超出浏览器画布上限,已自动分 ' + vols.length + ' 卷,每卷一张完整长图;按卷序排列即整页');
+      addNote('整图超出浏览器画布上限,已分 ' + vols.length + ' 卷;每卷可独立「编辑」,按卷序排列即整页');
     } catch (e) {
       // 回退:分段展示 + 逐段下载
       $('info').textContent = '图片超出画布上限,按分段展示';
       const list = document.createElement('div');
       list.className = 'seg-list';
       blobs.forEach((blob, i) => {
-        const item = document.createElement('div');
-        item.className = 'seg-item';
-        const cap = document.createElement('div');
-        cap.className = 'cap';
-        cap.textContent = `第 ${i + 1} / ${blobs.length} 段 `;
-        const dl = document.createElement('button');
-        dl.textContent = '下载本段';
-        dl.addEventListener('click', () => downloadBlob(blob, dotName(meta.name, '-' + (i + 1))));
-        cap.appendChild(dl);
-        const img = new Image();
-        img.src = URL.createObjectURL(blob);
-        item.appendChild(cap); item.appendChild(img);
-        list.appendChild(item);
+        list.appendChild(buildSegItem(`第 ${i + 1} / ${blobs.length} 段`, blob, dotName(meta.name, '-' + (i + 1))));
       });
       $('wrap').appendChild(list);
       currentBlob = blobs[0];
-      addNote('整图超出浏览器画布限制,无法合成单张长图,已提供逐段下载');
+      addNote('整图超出浏览器画布限制,已按分段展示;每段可独立「编辑」与下载');
     }
+  }
+
+  /** 分卷/分段条目:缩略说明 + 编辑该卷 + 下载本卷(导出所见即所得) */
+  function buildSegItem(label, blob, filename) {
+    const item = document.createElement('div');
+    item.className = 'seg-item';
+    const cap = document.createElement('div');
+    cap.className = 'cap';
+    cap.textContent = label + ' ';
+    const eb = document.createElement('button');
+    eb.textContent = '编辑本卷';
+    eb.addEventListener('click', () => Edit.setMode('edit'));
+    const dl = document.createElement('button');
+    dl.textContent = '下载本卷';
+    dl.addEventListener('click', async () => {
+      const img = item.querySelector('img');
+      const edited = await Edit.exportBlob(img);
+      downloadBlob(edited || blob, edited ? asPng(dotName(filename, '-标注')) : filename);
+    });
+    cap.appendChild(eb); cap.appendChild(dl);
+    const img = new Image();
+    img.src = URL.createObjectURL(blob);
+    img.onload = () => Edit.mount(img, blob, filename);
+    item.appendChild(cap); item.appendChild(img);
+    return item;
   }
 
   function dotName(name, suffix) {
     const i = name.lastIndexOf('.');
     return i > 0 ? name.slice(0, i) + suffix + name.slice(i) : name + suffix;
+  }
+  /** 导出物为 PNG:改文件名扩展名 */
+  function asPng(name) {
+    const i = name.lastIndexOf('.');
+    return (i > 0 ? name.slice(0, i) : name) + '.png';
   }
 
   function renderInfo() {
@@ -173,6 +184,7 @@
     const dpr = window.devicePixelRatio || 1;
     imgEl.style.width = Math.round(naturalW / dpr * scale) + 'px';
     $('zoom-label').textContent = Math.round(scale * 100) + '%';
+    Edit.redraw();
   }
   function zoomFit() { scale = ($('stage').clientWidth - 32) / (naturalW / (window.devicePixelRatio || 1)); applyScale(); }
   $('zoom-in').addEventListener('click', () => { scale = Math.min(4, scale * 1.25); applyScale(); });
@@ -186,7 +198,7 @@
     applyScale();
   }, { passive: false });
 
-  /* ---------------- 下载 / 复制 ---------------- */
+  /* ---------------- 下载 / 复制(所见即所得) ---------------- */
   async function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     try {
@@ -197,28 +209,44 @@
     }
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
-  $('btn-download').addEventListener('click', () => {
-    if (currentBlob) downloadBlob(currentBlob, meta.name);
-  });
 
-  $('btn-copy').addEventListener('click', async () => {
-    if (!currentBlob) return;
+  /** 当前呈现的 blob:有标注→全分辨率合成 PNG;无标注→原始 blob(零回归) */
+  async function displayBlob() {
     try {
-      let blob = currentBlob;
-      if (blob.type !== 'image/png') {
-        // 剪贴板图片仅 PNG:JPEG 经 canvas 重编码
-        const bmp = await createImageBitmap(blob);
+      const edited = await Edit.exportBlob();
+      if (edited) return { blob: edited, name: asPng(meta.name) };
+    } catch (e) { /* 合成失败退回原图 */ }
+    return { blob: currentBlob, name: meta.name };
+  }
+
+  async function doDownload() {
+    const { blob, name } = await displayBlob();
+    if (blob) downloadBlob(blob, name);
+  }
+  async function doCopy() {
+    const { blob } = await displayBlob();
+    if (!blob) return;
+    try {
+      let out = blob;
+      if (out.type !== 'image/png') {
+        const bmp = await createImageBitmap(out);
         const c = document.createElement('canvas');
         c.width = bmp.width; c.height = bmp.height;
         c.getContext('2d').drawImage(bmp, 0, 0);
-        blob = await new Promise(res => c.toBlob(res, 'image/png'));
+        out = await new Promise(res => c.toBlob(res, 'image/png'));
       }
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': out })]);
       flash('已复制到剪贴板');
     } catch (e) {
       flash('复制失败,请使用下载或在图片上右键复制');
     }
-  });
+  }
+
+  $('btn-download').addEventListener('click', doDownload);
+  $('btn-copy').addEventListener('click', doCopy);
+  $('btn-edit').addEventListener('click', () => Edit.setMode('edit'));
+  // 编辑态工具栏里的 复制/下载 复用同一出口
+  Edit._emit = (kind) => { if (kind === 'copy') doCopy(); else if (kind === 'download') doDownload(); };
 
   function flash(text) {
     const s = $('status');

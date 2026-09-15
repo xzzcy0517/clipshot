@@ -38,3 +38,39 @@ button:hover { filter: brightness(1.05); }
 .seg-list { display: flex; flex-direction: column; gap: 12px; }
 .seg-item img { max-width: 100%; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
 .seg-item .cap { font-size: 12px; opacity: .7; margin-bottom: 4px; }
+
+/* ── P007 编辑器 ───────────────────────────────── */
+#editlayer { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
+#editbar {
+  position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 70;
+  display: none; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: center;
+  background: #fff; border: 1px solid #d6dbe4; border-top: none; border-radius: 0 0 12px 12px;
+  padding: 6px 12px; box-shadow: 0 3px 14px rgba(0,0,0,.16); max-width: 96vw;
+}
+#editbar button { padding: 4px 9px; font-size: 14px; position: relative; }
+#editbar button.on { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+#editbar .primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+.esep { width: 1px; height: 20px; background: #d6dbe4; margin: 0 5px; }
+#eb-color .cdot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,.28); vertical-align: -2px; }
+#eb-color .cmenu { display: none; position: absolute; left: 0; top: calc(100% + 6px); background: #fff; border: 1px solid #d6dbe4; border-radius: 8px; padding: 6px; gap: 6px; flex-wrap: wrap; width: 116px; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+#eb-color .cmenu.on { display: flex; }
+#eb-color .cmenu i { width: 16px; height: 16px; border-radius: 50%; cursor: pointer; border: 1px solid rgba(0,0,0,.2); }
+#eb-textinput {
+  position: fixed; z-index: 80; background: transparent; border: none; outline: none;
+  border-bottom: 1.5px dashed currentColor; min-width: 60px; font-family: system-ui, "PingFang SC", sans-serif;
+}
+#previewbar {
+  position: fixed; right: 18px; bottom: 18px; z-index: 65; display: none; gap: 8px;
+  background: #fff; border: 1px solid #d6dbe4; border-radius: 12px; padding: 8px 10px;
+  box-shadow: 0 4px 18px rgba(0,0,0,.2);
+}
+#previewbar button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+body.editing #previewbar { display: none !important; }
+body.editing #stage { cursor: crosshair; }
+body.editing[data-tool="text"] #stage { cursor: text; }
+@media (prefers-color-scheme: dark) {
+  #editbar, #previewbar, #eb-color .cmenu { background: #171a21; border-color: #3a4150; }
+  #editbar button, #previewbar button { background: #232833; border-color: #3a4150; color: #dde3ee; }
+  #editbar .primary, #editbar button.on, #previewbar button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+  .esep { background: #3a4150; }
+}
