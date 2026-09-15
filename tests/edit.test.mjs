@@ -73,4 +73,53 @@ assert.equal(st.clearAll(), false, '空栈 clearAll 不入操作');
 st.add(A1); // 新操作清空 redo 分支
 assert.equal(st.redo(), null);
 
-console.log('✔ edit.test.mjs(坐标/几何/栈)');
+/* ---------- P007.2 选中交互纯逻辑 ---------- */
+const box = { tool: 'rect', x: 10, y: 20, bw: 100, bh: 50, w: 2 };
+let hs = P.handlePoints(box);
+assert.equal(hs.length, 8);
+assert.deepEqual({ x: hs[0].x, y: hs[0].y, dir: hs[0].dir }, { x: 10, y: 20, dir: 'nw' });
+assert.equal(hs[2].dir, 'ne'); assert.equal(hs[4].dir, 'se'); assert.equal(hs[6].dir, 'sw');
+let rr = P.resizeRect(box, 'e', 160, 999, false);
+assert.deepEqual(rr, { x: 10, y: 20, bw: 150, bh: 50 });
+rr = P.resizeRect(box, 'e', -5, 0, false); // 越过西边界 → 归一
+assert.ok(Math.abs(rr.x + 5) < 1e-9 && Math.abs(rr.bw - 15) < 1e-9, JSON.stringify(rr));
+rr = P.resizeRect(box, 'se', 130, 130, true); // Shift 角点锁正方形(取较大边)
+assert.ok(Math.abs(rr.bw - rr.bh) < 1e-9);
+let ha = P.handlePoints({ tool: 'arrow', x0: 0, y0: 0, x1: 10, y1: 10, w: 2 });
+assert.deepEqual(ha.map((p) => p.dir), ['p0', 'p1']);
+assert.deepEqual(P.handlePoints({ tool: 'text', x: 0, y: 0, text: 'a', fs: 20 }), []);
+
+/* ---------- 命中 ---------- */
+assert.equal(P.hitAnn(box, 60, 45, 4), 'body');
+assert.equal(P.hitAnn(box, 300, 45, 4), null);
+const ell = { tool: 'ellipse', x: 0, y: 0, bw: 100, bh: 40, w: 2 };
+assert.equal(P.hitAnn(ell, 95, 38, 2), null, '椭圆角区域不该命中');
+assert.equal(P.hitAnn(ell, 50, 35, 2), 'body');
+const ar = { tool: 'arrow', x0: 0, y0: 0, x1: 100, y1: 0, w: 2 };
+assert.equal(P.hitAnn(ar, 50, 3, 4), 'body');
+assert.equal(P.hitAnn(ar, 50, 20, 4), null);
+const tx = { tool: 'text', x: 5, y: 5, text: 'hi', fs: 20, color: '#000', _mw: 30, _mh: 28 };
+assert.equal(P.hitAnn(tx, 20, 15, 4), 'body');
+assert.equal(P.hitAnn(tx, 60, 15, 4), null);
+
+/* ---------- Store:edit/del 可逆 ---------- */
+const st2 = new CS.Store();
+const ann = Object.assign({}, box);
+st2.add(ann);
+const b1 = P.snap(ann); // bw=100
+ann.bw = 222;           // 真实流程:先改完,再 push edit(after 即时快照)
+st2.edit(ann, b1);
+st2.undo(); assert.equal(ann.bw, 100, 'undo 回到改动前');
+st2.redo(); assert.equal(ann.bw, 222, 'redo 重放改动后');
+st2.undo(); st2.undo(); // edit → add
+assert.equal(st2.anns.length, 0);
+st2.redo(); st2.redo();
+assert.equal(st2.anns.length, 1); assert.equal(ann.bw, 222);
+const st3 = new CS.Store();
+const b1 = { tool: 'rect' }, b2 = { tool: 'rect' }, b3 = { tool: 'rect' };
+[b1, b2, b3].forEach((a) => st3.add(a));
+st3.stack.push({ t: 'del', item: b2, index: 1 }); st3.anns.splice(1, 1);
+st3.undo(); assert.deepEqual(st3.anns, [b1, b2, b3], 'del 撤销按原位恢复');
+st3.redo(); assert.deepEqual(st3.anns, [b1, b3]);
+
+console.log('✔ edit.test.mjs(坐标/几何/栈/选中交互)');
