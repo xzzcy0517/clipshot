@@ -116,10 +116,10 @@ assert.equal(st2.anns.length, 0);
 st2.redo(); st2.redo();
 assert.equal(st2.anns.length, 1); assert.equal(ann.bw, 222);
 const st3 = new CS.Store();
-const b1 = { tool: 'rect' }, b2 = { tool: 'rect' }, b3 = { tool: 'rect' };
-[b1, b2, b3].forEach((a) => st3.add(a));
-st3.stack.push({ t: 'del', item: b2, index: 1 }); st3.anns.splice(1, 1);
-st3.undo(); assert.deepEqual(st3.anns, [b1, b2, b3], 'del 撤销按原位恢复');
-st3.redo(); assert.deepEqual(st3.anns, [b1, b3]);
+const d1 = { tool: 'rect' }, d2 = { tool: 'rect' }, d3 = { tool: 'rect' };
+[d1, d2, d3].forEach((a) => st3.add(a));
+st3.stack.push({ t: 'del', item: d2, index: 1 }); st3.anns.splice(1, 1);
+st3.undo(); assert.deepEqual(st3.anns, [d1, d2, d3], 'del 撤销按原位恢复');
+st3.redo(); assert.deepEqual(st3.anns, [d1, d3]);
 
 console.log('✔ edit.test.mjs(坐标/几何/栈/选中交互)');
