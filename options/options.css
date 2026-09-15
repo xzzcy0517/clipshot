@@ -18,18 +18,11 @@ label.row { display: flex; align-items: center; gap: 8px; }
 input[type="number"] { width: 110px; padding: 4px 6px; border-radius: 6px; border: 1px solid #ccd2dd; margin-left: 8px; }
 input[type="range"] { width: 220px; vertical-align: middle; margin-left: 8px; }
 select { padding: 4px 8px; border-radius: 6px; border: 1px solid #ccd2dd; margin-left: 8px; }
-.kbd-table { border-collapse: collapse; }
-.kbd-table td { padding: 3px 16px 3px 0; }
-.kbd-table td:last-child { font-family: ui-monospace, monospace; }
 .mini { font-size: 12px; opacity: .7; }
 button {
   padding: 6px 14px; border-radius: 8px; border: 1px solid #ccd2dd; background: #fff; cursor: pointer;
 }
 button:disabled { opacity: .5; cursor: default; }
-.status-line { margin-top: 10px; font-size: 13px; }
-.status-line span { font-family: ui-monospace, monospace; }
-.status-line button { margin-left: 8px; padding: 3px 10px; font-size: 12px; }
-input[type="text"] { padding: 4px 8px; border-radius: 6px; border: 1px solid #ccd2dd; font-family: ui-monospace, monospace; margin-left: 8px; }
 textarea {
   width: 100%; font: 12px/1.5 ui-monospace, monospace; padding: 8px;
   border-radius: 8px; border: 1px solid #ccd2dd; resize: vertical;

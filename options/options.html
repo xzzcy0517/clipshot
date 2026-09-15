@@ -40,30 +40,6 @@
     <label>单图上限:分段时每张图的高度上限(设备 px)<input type="number" id="maxPartDeviceH" min="4000" max="24000" step="1000"></label>
   </fieldset>
 
-  <fieldset>
-    <legend>Agent 桥接(让 AI Agent 调用截图)</legend>
-    <div class="mini">
-      让 Cursor / 豆包 / Codex 等 Agent 通过本机指令调用 ClipShot 截图,图片自动存到
-      <code>~/clipshot-out/</code>。v0.5.0 起<b>零配置</b>:电脑上跑过一次
-      <code>bash bridge/setup.sh</code>(或直接启动 Cursor)后,这里只需勾选启用,
-      端口自动发现、无需 token。详见 <code>docs/新机器部署指南.md</code>。
-    </div>
-    <label class="row"><input type="checkbox" id="bridgeEnabled"> 启用 Agent 桥接</label>
-    <div class="status-line">连接状态:<span id="bridge-status">—</span>
-      <button id="bridge-refresh" type="button">刷新</button></div>
-    <legend style="margin-top:10px">Agent 操作(P005「手」,接管参数)</legend>
-    <div class="mini">接管默认参数;危险动作按你的决定默认「只标记不拦截」(danger=mark)。</div>
-    <label>接管超时(秒,30–1800)<input type="number" id="agentTtlSec" min="30" max="1800" step="30"></label>
-    <label>每会话动作步数上限(5–500)<input type="number" id="agentStepsCap" min="5" max="500" step="10"></label>
-    <label>危险动作处理
-      <select id="agentDangerMode">
-        <option value="mark">标记不拦截(默认)</option>
-        <option value="block">拦截需确认</option>
-      </select>
-    </label>
-    <label class="row"><input type="checkbox" id="agentFollowNewTabs"> 点击开新标签时自动跟进接管</label>
-    <label>接管域名黑名单(逗号分隔,留空=不限)<input type="text" id="agentDomainBlock" size="40" placeholder="如 netbank.com,mybank.cn" spellcheck="false"></label>
-  </fieldset>
 
   <div class="mini">设置自动保存。扩展版本 <span id="ver"></span>
     — 排障用的页面诊断已移至工具栏面板(打开某个网页 → 点 ClipShot 图标 → 「诊断当前页面」)。</div>

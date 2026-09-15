@@ -46,13 +46,13 @@ try {
 process.on('uncaughtException', (e) => { bootError = e; });
 process.on('unhandledRejection', (e) => { bootError = bootError || e; });
 
-assert.ok(loaded.length >= 9, `importScripts 链异常,仅加载 ${loaded.length} 个文件`);
+assert.ok(loaded.length >= 8, `importScripts 链异常,仅加载 ${loaded.length} 个文件`);
 const CS = globalThis.ClipShot;
-for (const mod of ['pipeline', 'bridge', 'agent', 'imagestore', 'cdp', 'network', 'geom', 'MSG', 'broadcast']) {
+for (const mod of ['pipeline', 'imagestore', 'cdp', 'network', 'geom', 'MSG', 'broadcast']) {
   assert.ok(CS[mod], `CS.${mod} 未挂载(SW 顶层求值被中断?)`);
 }
-assert.equal(typeof CS.bridge.sendToTab, 'function', 'bridge.sendToTab 缺失');
-assert.equal(typeof CS.bridge.resolveTarget, 'function', 'bridge.resolveTarget 缺失');
+assert.equal(CS.bridge, undefined, 'P006:bridge 应已移除');
+assert.equal(CS.agent, undefined, 'P006:agent 应已移除');
 
 await new Promise(r => setTimeout(r, 80)); // 给微任务期异常冒出来的机会
 if (bootError) throw bootError;

@@ -12,7 +12,5 @@ node tests/manifest.test.mjs
 node tests/sw-boot.test.mjs
 node tests/geom.test.mjs
 node tests/protocol.test.mjs
-node tests/ws-relay.test.mjs
-node tests/mcp.test.mjs
 
 echo "✔ 全部静态校验通过"

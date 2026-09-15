@@ -54,10 +54,6 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       type: MSG.JOB_EVENT, jobId: job.id, tabId: job.tabId, mode: job.mode,
       phase: 'failed', pct: 100, text: CS.errText(code)
     });
-    if (job._rej) {
-      const r = job._rej; job._rej = null; job._res = null;
-      r({ ok: false, error: code, message: CS.errText(code) });
-    }
   }
 
   function abortCheck(job) {
@@ -127,14 +123,10 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       phase: 'check', pct: 0, startedAt: Date.now(),
       settings: null, hideFixedApplied: false, aborted: false, abortCode: null
     };
-    // 静默作业(Agent 桥):同步挂上 promise,runJob 之前注册,无竞态
-    if (job.opts.silent) {
-      job.promise = new Promise((res, rej) => { job._res = res; job._rej = rej; });
-    }
     jobsByTab.set(tabId, job);
     chrome.alarms.create('watchdog-' + job.id, { periodInMinutes: 1 });
     runJob(job); // 内部消化错误并做清理
-    return { ok: true, jobId: job.id, promise: job.promise };
+    return { ok: true, jobId: job.id };
   };
 
   pipeline.cancel = function (tabId) {
@@ -213,25 +205,8 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       segments: data.segments
     });
     phase(job, 'done', 100);
-    if (job.opts && job.opts.silent) {
-      // 静默交付(Agent 桥):不开预览页;桥从 imagestore 同上下文分块拉取回传 relay
-      if (job._res) {
-        const r = job._res; job._res = null; job._rej = null;
-        r({ ok: true, jobId: job.id, notes });
-      }
-      return;
-    }
     toast(job, '截图完成,正在打开预览页');
     await chrome.tabs.create({ url: chrome.runtime.getURL('preview/preview.html') + '?job=' + job.id });
-  }
-
-  /** captureVisibleTab 只能拍窗口活动标签:目标页不活动则先切过去(Agent 桥场景) */
-  async function ensureActive(tab) {
-    if (tab.active) return;
-    try {
-      await chrome.tabs.update(tab.id, { active: true });
-      await CS.util.sleep(300); // 等切前台渲染稳定
-    } catch (e) { /* 竞态时忽略,后续捕获自然报错 */ }
   }
 
   /* ------------------------------------------------------- 通用 debugger 路径 */
@@ -432,7 +407,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       // ④ 分段兜底:段高受单图上限(maxPartDeviceH)自动收敛;总长受 capH 闸门约束
       if (!segments) {
         segments = await runSegmented(job, capW, capH, dpr, s, preWarmed);
-        pathNote = `页面超出浏览器单张捕获上限,已分 ${segments.length} 段拍摄;预览与下载为合成后的单张长图(Agent 返回 ${segments.length} 个分段文件,按序即整页)`;
+        pathNote = `页面超出浏览器单张捕获上限,已分 ${segments.length} 段拍摄;预览与下载为合成后的单张长图`;
       }
       if (pathNote) notes.unshift(pathNote);
 
@@ -652,7 +627,6 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   async function runVisible(job) {
     const tab = await chrome.tabs.get(job.tabId);
     assertUsable(tab);
-    await ensureActive(tab);
     phase(job, 'capture', 50);
     const s = job.settings;
     const dataUrl = await CS.cdp.withTimeout(
@@ -674,7 +648,6 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     const tab = await chrome.tabs.get(job.tabId);
     assertUsable(tab);
     phase(job, 'inject', 5);
-    await ensureActive(tab); // 框选必须可见可交互
     await ensureContent(job.tabId);
     const cm = await sendToTab(job.tabId, { type: MSG.METRICS }, 4000);
 
@@ -766,22 +739,16 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   async function runElement(job) {
     const tab = await chrome.tabs.get(job.tabId);
     assertUsable(tab);
-    await ensureActive(tab); // 视口内路径用 captureVisibleTab,需目标页在前台
     phase(job, 'inject', 10);
     await ensureContent(job.tabId);
     phase(job, 'check', 20);
-    // Agent 桥可带 selector 定位元素;人工右键走 PICK_GET
-    const sel = job.opts && job.opts.selector;
     let pick;
     try {
-      pick = await sendToTab(job.tabId,
-        sel ? { type: MSG.PICK_QUERY, selector: sel } : { type: MSG.PICK_GET, maxAgeMs: 30000 }, 4000);
+      pick = await sendToTab(job.tabId, { type: MSG.PICK_GET, maxAgeMs: 30000 }, 4000);
     } catch (e) {
-      throw mkErr(e.clipshotCode === ERR.CONTENT_DEAD ? ERR.CONTENT_DEAD : (sel ? ERR.NO_TARGET : ERR.ELEMENT_GONE));
+      throw mkErr(e.clipshotCode === ERR.CONTENT_DEAD ? ERR.CONTENT_DEAD : ERR.ELEMENT_GONE);
     }
-    if (!pick || !pick.ok || !pick.rectDoc) {
-      throw mkErr((pick && pick.error) || (sel ? ERR.NO_TARGET : ERR.ELEMENT_GONE));
-    }
+    if (!pick || !pick.ok || !pick.rectDoc) throw mkErr(pick && pick.error ? pick.error : ERR.ELEMENT_GONE);
     const s = job.settings;
     const m = await sendToTab(job.tabId, { type: MSG.METRICS }, 4000).catch(() => null);
     const dpr = Math.max(1, Math.min(3, (m && m.dpr) || 1));

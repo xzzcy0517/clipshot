@@ -2,6 +2,7 @@
 /**
  * ClipShot service worker 入口:importScripts 共享 common/,注册监听,消息路由。
  * classic SW(非 module)是零构建下共享协议常量的前提。
+ * (P006:Agent 桥接已整体移除,本文件不再含 bridge/agent 接线;勿复活。)
  */
 importScripts(
   '/common/messages.js',
@@ -11,9 +12,7 @@ importScripts(
   '/background/cdp.js',
   '/background/networkidle.js',
   '/background/imagestore.js',
-  '/background/pipeline.js',
-  '/background/bridge.js',
-  '/background/agent.js'
+  '/background/pipeline.js'
 );
 
 const CS = globalThis.ClipShot;
@@ -26,13 +25,11 @@ CS.broadcast = function (msg) {
 
 /* ---------------- debugger 会话防泄漏:每次唤醒先清扫残留 ---------------- */
 CS.cdp.sweepAttached();
-CS.bridge.init(); // 每次唤醒都尝试恢复 Agent 桥连接(配置读自 storage.sync)
-chrome.runtime.onStartup.addListener(() => { CS.cdp.sweepAttached(); CS.bridge.reload(); });
+chrome.runtime.onStartup.addListener(() => CS.cdp.sweepAttached());
 
 /* ---------------- 安装/更新:重建右键菜单 ---------------- */
 chrome.runtime.onInstalled.addListener(() => {
   CS.cdp.sweepAttached();
-  CS.bridge.reload();
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: 'clipshot-element',
@@ -92,17 +89,6 @@ chrome.runtime.onMessage.addListener((m, sender, sendResponse) => {
           sendResponse(tabId != null ? await CS.pipeline.diag(tabId) : { ok: false, error: CS.ERR.NO_TARGET });
           return;
         }
-        case MSG.BRIDGE_STATE:
-          sendResponse(Object.assign({ ok: true }, CS.bridge.status()));
-          return;
-        case MSG.CONSOLE: // P005:console 探针批量上报(content → sw)
-          CS.agent.pushConsole(m.entries, sender.tab && sender.tab.id);
-          sendResponse({ ok: true });
-          return;
-        case MSG.RELEASE: // 用户按 Esc 夺回
-          CS.agent.release(m.reason || 'user-esc');
-          sendResponse({ ok: true });
-          return;
         default:
           sendResponse({ ok: false, error: CS.ERR.UNKNOWN });
       }
@@ -126,17 +112,6 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name === CS.SCROLL_PORT) CS.pipeline.handleScrollConnect(port);
 });
 
-/* ---------------- 标签页关闭 / alarm / 桥接设置变更 ---------------- */
-CS.agent.attach(); // P005:tab 创建/更新事件流与新标签跟进
-chrome.tabs.onRemoved.addListener((tabId) => {
-  CS.pipeline.onTabClosed(tabId);
-  CS.agent.onTabClosed(tabId);
-});
-chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === 'bridge-heart') { CS.bridge.tick(); return; }
-  if (a.name === 'agent-ttl') { CS.agent.onAlarm(a.name); return; }
-  CS.pipeline.onAlarm(a.name);
-});
-chrome.storage.onChanged.addListener((ch, area) => {
-  if (area === 'sync' && Object.keys(ch).some(k => k.startsWith('bridge'))) CS.bridge.reload();
-});
+/* ---------------- 标签页关闭 / alarm ---------------- */
+chrome.tabs.onRemoved.addListener((tabId) => CS.pipeline.onTabClosed(tabId));
+chrome.alarms.onAlarm.addListener((a) => CS.pipeline.onAlarm(a.name));
