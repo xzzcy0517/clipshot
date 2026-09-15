@@ -360,7 +360,7 @@
   }
 
   function drawAnn(c, a, view) {
-    if (!a) return;
+    if (!a || a._editing) return; // 重编辑中:隐藏原字,输入框即所见
     const m = M(view);
     c.save();
     c.lineCap = 'round'; c.lineJoin = 'round';
@@ -495,12 +495,14 @@
     }
     for (let i = t.store.anns.length - 1; i >= 0; i--) {
       const a = t.store.anns[i];
+      if (a.tool === 'mosaic') continue; // 马赛克即涂即定,不选中/不拖动(用户反馈)
       if (P.hitAnn(a, x, y, slop)) return { kind: 'body', a };
     }
     return null;
   }
   function select(t, a) {
     selected = (a && t) ? { t, ann: a } : null;
+    if (selected) setTool(a.tool); // 工具栏高亮跟随当前选中标注类型(用户反馈)
   }
   function onPointerDown(e) {
     if (mode !== 'edit' || e.button !== 0) return;
@@ -630,7 +632,12 @@
     const slop = 8 / (rect.width / t.natW || 1);
     for (let i = t.store.anns.length - 1; i >= 0; i--) {
       const a = t.store.anns[i];
-      if (a.tool === 'text' && P.hitAnn(a, p.x, p.y, slop)) { select(t, a); openText(t, { x: a.x, y: a.y }, a); return; }
+      if (a.tool === 'text' && P.hitAnn(a, p.x, p.y, slop)) {
+        e.preventDefault();
+        selected = { t, ann: a }; setTool('text');
+        openText(t, { x: a.x, y: a.y }, a);
+        return;
+      }
     }
   }
   function buildDragAnn() {
@@ -672,7 +679,7 @@
     inp.style.top = (rect.top + pt.y / t.natH * rect.height) + 'px';
     inp.style.color = existing ? (existing.color || curColor()) : curColor();
     inp.style.font = Math.max(6, (existing ? existing.fs : curWidth('text')) * (rect.width / t.natW)) + 'px system-ui';
-    if (existing) inp.value = existing.text;
+    if (existing) { inp.value = existing.text; existing._editing = true; requestRedraw(); }
     inp.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') commitText();
@@ -690,7 +697,16 @@
     const color = existing ? existing.color : curColor();
     textInput = null; inp.remove();
     if (existing) {
-      if (v && v !== existing.text) { t.store.edit(existing, P.snap(existing)); existing.text = v; t.store.stack[t.store.stack.length - 1].after = P.snap(existing); }
+      delete existing._editing;
+      if (!v) { // 清空提交 = 删除该文字(可撤销)
+        const i = t.store.anns.indexOf(existing);
+        if (i >= 0) { t.store.stack.push({ t: 'del', item: existing, index: i }); t.store.redone.length = 0; t.store.anns.splice(i, 1); }
+        if (selected && selected.ann === existing) select();
+      } else if (v !== existing.text) {
+        const before = P.snap(existing);
+        existing.text = v; measureText(existing);
+        t.store.edit(existing, before);
+      }
       requestRedraw(); return;
     }
     if (v) {
