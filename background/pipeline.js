@@ -20,7 +20,6 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   const TOTAL_TIMEOUT = 300000;   // 单作业最长 5 分钟(v0.4.5:15+ 段的超长文档需要)
   const MARQUEE_WINDOW = 30000;   // 框选等待窗口
   const SCROLL_TIMEOUT = 75000;   // 滚动阶段兜底超时(content 侧自身 60s)
-  const CANVAS_MAX_PX = 32767;    // 浏览器 canvas 单边上限(近似)
 
   const pipeline = {};
 
@@ -886,5 +885,4 @@ globalThis.ClipShot = globalThis.ClipShot || {};
   };
 
   CS.pipeline = pipeline;
-  CS.CANVAS_MAX_PX = CANVAS_MAX_PX;
 })(globalThis.ClipShot);
