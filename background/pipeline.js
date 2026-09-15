@@ -310,7 +310,11 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       // 仿真宽度用 innerWidth:与当前布局宽度一致,避免滚动条消失/出现引发
       // 文本重排——重排正是分段拼接缝错位的根源之一
       const capW = Math.max(1, Math.round((m2 && m2.vw) || css.cssW));
-      let capH = Math.max(1, Math.round(isInternal ? m2.scrollerH : Math.max(css.cssH, (m2 && m2.docH) || 0)));
+      // v0.7.4:内部容器页的整幅仿真高度 = 内容高 + 容器顶部偏移(看板/后台页容器上方
+      // 常有标签/筛选头部,容器实高=视口−头部,不算进去底部必缺一截)+ 16px 余量
+      let capH = Math.max(1, Math.round(
+        isInternal ? m2.scrollerH + Math.max(0, m2.scrollerTop | 0) + 16
+                   : Math.max(css.cssH, (m2 && m2.docH) || 0)));
 
       // ── P003 治理:注记降噪(过程不逐条喊,最终一条路径说明)+ 三层上限
       const notes = [];
@@ -351,8 +355,11 @@ globalThis.ClipShot = globalThis.ClipShot || {};
           // 双等待:网络空闲 + DOM/渲染稳定(后者是飞书文档类页面的关键)
           await CS.network.waitForIdle(job.tabId, 500, 3000);
           let rs = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 4000 }, 8000).catch(() => null);
-          // 固定高度容器(聊天面板类)不随视口拉伸,仿真无效 → 明确报错而非静默出残图
-          if (isInternal && rs && rs.clientH > 0 && rs.clientH < capH * 0.9) {
+          // 固定高度容器(聊天面板类)不随视口拉伸,仿真无效 → 明确报错而非静默出残图。
+          // v0.7.4:对照「容器内容高」而非仿真高——仿真高含头部偏移,用它会误伤
+          // 正常看板页(clientH = docH − 头部,可能低于 capH*0.9 却完全正常)
+          const contentH = rs && rs.docH > 0 ? rs.docH : capH;
+          if (isInternal && rs && rs.clientH > 0 && rs.clientH < contentH * 0.9) {
             throw mkErr(ERR.FIXED_CONTAINER);
           }
           // 放大后重排可能让内容更高(占位块换真实内容):再放大一次(仍守面积上限与总长闸门)

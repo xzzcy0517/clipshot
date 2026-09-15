@@ -52,8 +52,11 @@
       scroller: sc.kind, scrollerPath: describe(sc.el),
       // 内部滚动容器(飞书文档类 SPA)的真实内容尺寸:
       // getLayoutMetrics 只能看到 document 高度(≈一屏),必须用容器 scrollHeight
+      // scrollerTop(v0.7.4):容器盒子距视口顶的偏移——看板/后台页容器上方常有
+      // 标签/筛选头部,整幅仿真高度必须把它算进去,否则底部一截拍不到
       scrollerW: sc.kind === 'internal' ? sc.el.clientWidth : null,
-      scrollerH: sc.kind === 'internal' ? sc.el.scrollHeight : null
+      scrollerH: sc.kind === 'internal' ? sc.el.scrollHeight : null,
+      scrollerTop: sc.kind === 'internal' ? Math.round(sc.el.getBoundingClientRect().top) : null
     };
   }
 
