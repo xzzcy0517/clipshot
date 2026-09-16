@@ -168,21 +168,21 @@
 
   if (typeof document === 'undefined') return; // node 下只导出纯逻辑
 
-  /* ================ 编辑器实现(v0.8.1:选项条内联交互) ================ */
+  /* ================ 编辑器实现(v0.8.4:选中即弹选项条/即改即生效/多行文字) ================ */
   const TOOLS = [
     { id: 'rect', key: '1', glyph: '▭', tip: '方框(Shift 锁正方形)', kind: 'shape' },
     { id: 'ellipse', key: '2', glyph: '◯', tip: '椭圆(Shift 锁正圆)', kind: 'shape' },
     { id: 'arrow', key: '3', glyph: '↗', tip: '箭头(Shift 吸附 15°)', kind: 'shape' },
     { id: 'pen', key: '4', glyph: '✎', tip: '画笔', kind: 'shape' },
     { id: 'mosaic', key: '5', glyph: '▦', tip: '马赛克(涂抹背景像素格)', kind: 'mosaic' },
-    { id: 'text', key: '6', glyph: 'T', tip: '文字(点击输入,Enter 完成)', kind: 'text' },
+    { id: 'text', key: '6', glyph: 'T', tip: '文字(点击输入,Enter 换行,点空白处完成)', kind: 'text' },
     { id: 'highlight', key: '7', glyph: '⚡', tip: '高亮(半透明荧光条)', kind: 'highlight' }
   ];
   // 线宽标准按网页正文 14–16px 定:细=2 中=3 粗=5(图像像素);高亮/马赛克带按视觉需要加宽
   const TIERS = { shape: [2, 3, 5], mosaic: [16, 28, 44], highlight: [14, 22, 32], text: [14, 20, 28] };
   const COLORS = ['#f5222d', '#fa8c16', '#fadb14', '#52c41a', '#1677ff', '#722ed1', '#111111', '#ffffff'];
   const MOSAIC_CELL = 12;
-  const TIER_LABELS = ['细', '中', '粗'];
+  const TIER_PX = [2, 4, 7]; // 三档线条的视觉厚度(CSS px,仅作示意,非实际线宽)
 
   const $ = (id) => document.getElementById(id);
   let overlay = null, ctx = null, stage = null, bar = null, previewBar = null, pop = null;
@@ -256,14 +256,18 @@
     bar.appendChild(frag);
   }
 
-  /* -------- 工具下方的选项条:粗细(字号)+ 常用色,即选即生效 -------- */
+  /* -------- 工具下方的选项条:线宽(线条示意)/字号(A 大小)+ 常用色,即选即生效 -------- */
   function openPop(def, anchorBtn) {
     closePop();
     const kind = def.kind;
+    pop._kind = kind;
     let html = '';
     TIERS[kind].forEach((w, i) => {
-      html += '<button class="tier' + (i === tierByKind[kind] ? ' on' : '') + '" data-t="' + i + '">' +
-        (kind === 'text' ? w + 'px' : TIER_LABELS[i]) + '</button>';
+      const inner = kind === 'text'
+        ? '<span class="ta" style="font-size:' + (10 + i * 4) + 'px">A</span>'
+        : '<i class="ln" style="height:' + TIER_PX[i] + 'px"></i>';
+      html += '<button class="tier' + (i === tierByKind[kind] ? ' on' : '') + '" data-t="' + i + '" title="' +
+        (kind === 'text' ? '字号 ' + w + 'px' : '线宽 ' + w + 'px') + '">' + inner + '</button>';
     });
     html += '<span class="psp"></span>';
     if (kind !== 'mosaic') {
@@ -280,16 +284,62 @@
     pop.style.top = (r.bottom + 6) + 'px';
     pop.querySelectorAll('.tier').forEach((b) => b.addEventListener('click', (e) => {
       e.stopPropagation();
-      tierByKind[kind] = +b.dataset.t;
-      closePop();
+      applyTier(kind, +b.dataset.t);
+      if (kind === 'text' && textInput) refreshPop(); else closePop();
     }));
     pop.querySelectorAll('.pcolor').forEach((b) => b.addEventListener('click', (e) => {
       e.stopPropagation();
-      colorIdx = +b.dataset.c;
-      closePop();
+      applyColor(+b.dataset.c);
+      if (textInput) refreshPop(); else closePop();
     }));
   }
   function closePop() { if (pop) { pop.style.display = 'none'; pop.innerHTML = ''; } }
+  function refreshPop() {
+    if (!pop || pop.style.display !== 'flex') return;
+    pop.querySelectorAll('.tier').forEach((x) => x.classList.toggle('on', +x.dataset.t === tierByKind[pop._kind]));
+    pop.querySelectorAll('.pcolor').forEach((x) => x.classList.toggle('on', +x.dataset.c === colorIdx));
+  }
+  /** 档位改动:记为默认值;有选中标注/正在输入文字时同步生效(可撤销) */
+  function applyTier(kind, i) {
+    tierByKind[kind] = i;
+    const v = TIERS[kind][i];
+    if (kind === 'text' && textInput) { textInput.fs = v; styleTextInput(); autogrowText(); return; }
+    const a = selected && selected.ann;
+    if (!a || toolDef(a.tool).kind !== kind) return;
+    const before = P.snap(a);
+    if (kind === 'text') {
+      if (a.fs === v) return;
+      a.fs = v; measureText(a);
+    } else {
+      if (a.w === v) return;
+      a.w = v; a._pal = null;
+    }
+    selected.t.store.edit(a, before);
+    requestRedraw();
+  }
+  /** 颜色改动:记为默认色;有选中标注/正在输入文字时同步生效(可撤销) */
+  function applyColor(i) {
+    colorIdx = i;
+    const c = COLORS[i];
+    if (textInput) { textInput.color = c; styleTextInput(); return; }
+    const a = selected && selected.ann;
+    if (!a || a.tool === 'mosaic' || a.color === c) return;
+    const before = P.snap(a);
+    a.color = c;
+    selected.t.store.edit(a, before);
+    requestRedraw();
+  }
+  /** 选中标注时把它的颜色/线宽(字号)回显为当前档位 */
+  function syncFromAnn(a) {
+    const kind = toolDef(a.tool).kind;
+    if (a.color) { const ci = COLORS.indexOf(a.color); if (ci >= 0) colorIdx = ci; }
+    const arr = TIERS[kind];
+    const v = kind === 'text' ? a.fs : a.w;
+    if (v == null) return;
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < arr.length; i++) { const d = Math.abs(arr[i] - v); if (d < bd) { bd = d; best = i; } }
+    tierByKind[kind] = best;
+  }
 
   function setTool(id) {
     tool = id;
@@ -386,9 +436,12 @@
     } else if (a.tool === 'text') {
       if (!a._mw) measureText(a);
       c.fillStyle = col;
-      c.font = Math.max(4, m.v(a.fs)) + 'px system-ui, "PingFang SC", sans-serif';
+      const fpx = Math.max(4, m.v(a.fs));
+      c.font = fpx + 'px system-ui, "PingFang SC", sans-serif';
       c.textBaseline = 'top';
-      c.fillText(a.text, m.x(a.x), m.y(a.y));
+      const lines = String(a.text).split('\n');
+      const lh = fpx * 1.4;
+      for (let i = 0; i < lines.length; i++) c.fillText(lines[i], m.x(a.x), m.y(a.y) + i * lh);
     }
     c.restore();
     if (selected && selected.ann === a && mode === 'edit') drawSelection(c, a, m);
@@ -502,14 +555,22 @@
   }
   function select(t, a) {
     selected = (a && t) ? { t, ann: a } : null;
-    if (selected) setTool(a.tool); // 工具栏高亮跟随当前选中标注类型(用户反馈)
+    if (selected) {
+      setTool(a.tool); // 工具栏高亮跟随当前选中标注类型(用户反馈)
+      syncFromAnn(a); // 颜色/线宽档位回显为该标注当前值
+      // 选项条自动弹出,可直接改颜色/线宽(文字输入期间由 openText 自行弹出)
+      if (mode === 'edit' && !textInput) {
+        const btn = bar.querySelector('[data-tool="' + a.tool + '"]');
+        if (btn) openPop(toolDef(a.tool), btn);
+      }
+    }
   }
   function onPointerDown(e) {
     if (mode !== 'edit' || e.button !== 0) return;
     if ((bar && bar.contains(e.target)) || (pop && pop.contains(e.target))) { return; }
     closePop();
     const hit = eventImg(e);
-    if (!hit) { select(); requestRedraw(); return; }
+    if (!hit) { commitText(); select(); requestRedraw(); return; }
     const target = hit.t;
     const hitRes = hitTest(target, hit.pt.x, hit.pt.y);
     if (hitRes && hitRes.kind === 'resize') {
@@ -634,7 +695,7 @@
       const a = t.store.anns[i];
       if (a.tool === 'text' && P.hitAnn(a, p.x, p.y, slop)) {
         e.preventDefault();
-        selected = { t, ann: a }; setTool('text');
+        select(t, a);
         openText(t, { x: a.x, y: a.y }, a);
         return;
       }
@@ -669,32 +730,58 @@
     return null;
   }
 
-  /* ---------------- 文字 ---------------- */
+  /* ---------------- 文字(微信式:Enter 换行,点空白完成;编辑中可改色/字号) ---------------- */
   function openText(t, pt, existing) {
     commitText();
-    const rect = t.imgEl.getBoundingClientRect();
-    const inp = document.createElement('input');
-    inp.id = 'eb-textinput'; inp.type = 'text';
-    inp.style.left = (rect.left + pt.x / t.natW * rect.width) + 'px';
-    inp.style.top = (rect.top + pt.y / t.natH * rect.height) + 'px';
-    inp.style.color = existing ? (existing.color || curColor()) : curColor();
-    inp.style.font = Math.max(6, (existing ? existing.fs : curWidth('text')) * (rect.width / t.natW)) + 'px system-ui';
+    const inp = document.createElement('textarea');
+    inp.id = 'eb-textinput';
+    inp.rows = 1;
+    textInput = {
+      inp, t, pt, existing,
+      fs: existing ? existing.fs : curWidth('text'),
+      color: existing ? (existing.color || curColor()) : curColor()
+    };
+    styleTextInput();
     if (existing) { inp.value = existing.text; existing._editing = true; requestRedraw(); }
     inp.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      if (e.key === 'Enter') commitText();
-      if (e.key === 'Escape') { if (existing) inp.value = existing.text; else inp.value = ''; commitText(); }
+      e.stopPropagation(); // Enter 走默认换行;Esc 放弃改动
+      if (e.key === 'Escape') { inp.value = existing ? existing.text : ''; commitText(); }
     });
+    inp.addEventListener('input', autogrowText);
     document.body.appendChild(inp);
-    textInput = { inp, t, pt, existing };
+    autogrowText();
+    // 输入期间选项条保持展开:字号/颜色即点即改
+    const btn = bar.querySelector('[data-tool="text"]');
+    if (btn) openPop(toolDef('text'), btn);
     if (existing) { inp.focus(); inp.select(); } else setTimeout(() => inp.focus(), 0);
+  }
+  function styleTextInput() {
+    if (!textInput) return;
+    const { inp, t, pt, fs, color } = textInput;
+    const rect = t.imgEl.getBoundingClientRect();
+    const k = rect.width / t.natW || 1;
+    inp.style.left = (rect.left + pt.x * k) + 'px';
+    inp.style.top = (rect.top + pt.y * k) + 'px';
+    inp.style.color = color;
+    inp.style.font = Math.max(6, fs * k) + 'px/1.4 system-ui, "PingFang SC", sans-serif';
+  }
+  function autogrowText() {
+    if (!textInput) return;
+    const { inp, t, fs } = textInput;
+    const rect = t.imgEl.getBoundingClientRect();
+    const k = rect.width / t.natW || 1;
+    if (!measCtx) { measCtx = document.createElement('canvas').getContext('2d'); }
+    measCtx.font = Math.max(6, fs * k) + 'px system-ui, "PingFang SC", sans-serif';
+    let w = 0;
+    for (const ln of (inp.value || ' ').split('\n')) w = Math.max(w, measCtx.measureText(ln).width);
+    inp.style.width = Math.max(80, Math.min(w + 28, innerWidth * 0.9)) + 'px';
+    inp.style.height = 'auto';
+    inp.style.height = inp.scrollHeight + 'px';
   }
   function commitText() {
     if (!textInput) return;
-    const { inp, t, pt, existing } = textInput;
+    const { inp, t, pt, existing, fs, color } = textInput;
     const v = inp.value.trim();
-    const fs = existing ? existing.fs : curWidth('text');
-    const color = existing ? existing.color : curColor();
     textInput = null; inp.remove();
     if (existing) {
       delete existing._editing;
@@ -702,10 +789,13 @@
         const i = t.store.anns.indexOf(existing);
         if (i >= 0) { t.store.stack.push({ t: 'del', item: existing, index: i }); t.store.redone.length = 0; t.store.anns.splice(i, 1); }
         if (selected && selected.ann === existing) select();
-      } else if (v !== existing.text) {
+      } else {
         const before = P.snap(existing);
-        existing.text = v; measureText(existing);
-        t.store.edit(existing, before);
+        let changed = false;
+        if (v !== existing.text) { existing.text = v; changed = true; }
+        if (color && color !== existing.color) { existing.color = color; changed = true; }
+        if (fs && fs !== existing.fs) { existing.fs = fs; changed = true; }
+        if (changed) { measureText(existing); t.store.edit(existing, before); }
       }
       requestRedraw(); return;
     }
@@ -721,8 +811,11 @@
   function measureText(a) {
     if (!measCtx) { measCtx = document.createElement('canvas').getContext('2d'); }
     measCtx.font = a.fs + 'px system-ui, "PingFang SC", sans-serif';
-    a._mw = measCtx.measureText(a.text).width;
-    a._mh = a.fs * 1.4;
+    const lines = String(a.text).split('\n');
+    let w = 0;
+    for (const ln of lines) w = Math.max(w, measCtx.measureText(ln).width);
+    a._mw = w;
+    a._mh = lines.length * a.fs * 1.4;
   }
 
   /* ---------------- 栈操作 ---------------- */

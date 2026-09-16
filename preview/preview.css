@@ -56,17 +56,20 @@ button:hover { filter: brightness(1.05); }
   background: #fff; border: 1px solid #d6dbe4; border-radius: 10px; padding: 6px 8px;
   box-shadow: 0 4px 14px rgba(0,0,0,.2);
 }
-#eb-pop button.tier { padding: 3px 8px; font-size: 12px; }
+#eb-pop button.tier { padding: 3px 10px; min-width: 36px; display: inline-flex; align-items: center; justify-content: center; }
+#eb-pop button.tier .ln { display: block; width: 20px; background: currentColor; border-radius: 2px; }
+#eb-pop button.tier .ta { line-height: 1; font-weight: 600; }
 #eb-pop button.tier.on { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
 #eb-pop .psp { width: 1px; height: 18px; background: #d6dbe4; }
 #eb-pop i.pcolor { width: 16px; height: 16px; border-radius: 50%; cursor: pointer; border: 1px solid rgba(0,0,0,.22); display: inline-block; }
 #eb-pop i.pcolor.on { outline: 2px solid #2f6fe4; outline-offset: 1px; }
 #eb-pop .phint { font-size: 12px; opacity: .65; }
 #eb-textinput {
-  position: fixed; z-index: 80; outline: none; padding: 2px 6px; min-width: 120px;
+  position: fixed; z-index: 80; outline: none; padding: 2px 6px; min-width: 80px;
   background: rgba(255,255,255,.92); border: 1.5px solid #2f6fe4; border-radius: 6px;
   box-shadow: 0 2px 10px rgba(0,0,0,.18);
-  font-family: system-ui, "PingFang SC", sans-serif;
+  font-family: system-ui, "PingFang SC", sans-serif; line-height: 1.4;
+  resize: none; overflow: hidden; white-space: pre; margin: 0;
 }
 #previewbar {
   position: fixed; right: 18px; bottom: 18px; z-index: 65; display: none; gap: 8px;
