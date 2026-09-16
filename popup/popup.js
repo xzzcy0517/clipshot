@@ -66,6 +66,20 @@
     }
   });
 
+  /* ---------------- 图片工具(P009):上传图片 → 预览页编辑 ---------------- */
+  $('btn-openimg').addEventListener('click', () => $('file-img').click());
+  $('file-img').addEventListener('change', async (e) => {
+    const files = [...(e.target.files || [])];
+    e.target.value = '';
+    if (!files.length) return;
+    showProgress('check', 0, '准备上传…');
+    const r = await CS.uploadImages(files, (t) => showProgress('check', 50, t));
+    hideProgress();
+    if (!r.ok) return notice('上传失败:' + (r.error === 'NO_IMAGE' ? '所选文件不是图片' : CS.errText(r.error)));
+    await chrome.tabs.create({ url: chrome.runtime.getURL('preview/preview.html') + '?job=' + r.jobId });
+    window.close();
+  });
+
   for (const [id, mode] of [['btn-full', 'full'], ['btn-visible', 'visible'], ['btn-region', 'region']]) {
     $(id).addEventListener('click', async () => {
       if (activeTabId == null) return notice('未找到当前标签页');

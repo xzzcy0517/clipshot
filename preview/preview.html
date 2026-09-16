@@ -35,6 +35,29 @@
     <button id="btn-edit" class="primary" title="像微信一样标注(快捷键 E)">✎ 编辑</button>
     <button id="btn-copy" title="复制当前呈现(含标注)到剪贴板">复制</button>
     <button id="btn-download" title="下载当前呈现(含标注)">下载</button>
+    <button id="btn-dlopts" title="下载选项:格式/质量/缩放">▾</button>
+  </div>
+  <!-- 下载选项面板(P009):格式/质量/缩放,即选即用 -->
+  <div id="dlpanel" hidden>
+    <label>格式
+      <select id="dl-format">
+        <option value="original">原始</option>
+        <option value="png">PNG</option>
+        <option value="jpeg">JPEG</option>
+        <option value="webp">WebP</option>
+      </select>
+    </label>
+    <label id="dl-quality-row">质量
+      <input id="dl-quality" type="range" min="60" max="100" value="85">
+      <span id="dl-quality-v">85</span>
+    </label>
+    <label>缩放
+      <select id="dl-scale">
+        <option value="100">100%</option>
+        <option value="75">75%</option>
+        <option value="50">50%</option>
+      </select>
+    </label>
   </div>
 
   <canvas id="editlayer"></canvas>
@@ -42,6 +65,7 @@
   <script src="../common/messages.js"></script>
   <script src="../common/geom.js"></script>
   <script src="../common/naming.js"></script>
+  <script src="../common/upload.js"></script>
   <script src="edit.js"></script>
   <script src="preview.js"></script>
 </body>

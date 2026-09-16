@@ -33,10 +33,11 @@
   }
 
   async function init() {
-    if (!jobId) return fail('缺少任务参数,请从截图操作打开本页');
+    if (!jobId) return openState(); // P009:无任务参数 = 图片工作台空态,可直接上传
     const m = await send({ type: CS.MSG.IMG_META, jobId });
     if (!m || !m.ok) return fail(CS.errText((m && m.error) || CS.ERR.STALE_JOB));
     meta = m;
+    if (m.items && m.items.length) return initItems(m); // P009 多图上传
 
     // 分块拉取
     const segB64 = new Array(m.segments.length).fill('');
@@ -56,6 +57,56 @@
     }
     renderNotes();
     renderInfo();
+  }
+
+  /** P009 空态:无 job 时给上传入口(上传完带 jobId 重进本页) */
+  function openState() {
+    $('info').textContent = '图片工作台';
+    const box = document.createElement('div');
+    box.className = 'open-state';
+    const tip = document.createElement('p');
+    tip.textContent = '上传图片后即可标注、转格式、压缩(可多选)';
+    const btn = document.createElement('button');
+    btn.className = 'primary'; btn.textContent = '打开图片编辑';
+    const fi = document.createElement('input');
+    fi.type = 'file'; fi.accept = 'image/*'; fi.multiple = true; fi.hidden = true;
+    btn.addEventListener('click', () => fi.click());
+    fi.addEventListener('change', async () => {
+      const files = [...(fi.files || [])];
+      fi.value = '';
+      if (!files.length) return;
+      btn.disabled = true;
+      const r = await CS.uploadImages(files, (t) => { tip.textContent = t; });
+      btn.disabled = false;
+      if (!r.ok) { tip.textContent = '上传失败:' + (r.error === 'NO_IMAGE' ? '所选文件不是图片' : CS.errText(r.error)); return; }
+      location.href = 'preview.html?job=' + r.jobId;
+    });
+    box.append(tip, btn, fi);
+    $('wrap').appendChild(box);
+  }
+
+  /** P009 多图上传:逐张拉取,列表展示,每张独立编辑/复制/下载 */
+  async function initItems(m) {
+    const list = document.createElement('div');
+    list.className = 'seg-list';
+    for (let i = 0; i < m.items.length; i++) {
+      const it = m.items[i];
+      let b64 = '';
+      for (let c = 0; c < it.chunkCount; c++) {
+        const r = await send({ type: CS.MSG.IMG_CHUNK, jobId, item: i, index: c });
+        if (!r || !r.ok) return fail(CS.errText((r && r.error) || CS.ERR.STALE_JOB));
+        b64 += r.b64;
+        $('info').textContent = `接收图片 ${i + 1}/${m.items.length} ${Math.round((c + 1) / it.chunkCount * 100)}%`;
+      }
+      const blob = new Blob([CS.util.b64Decode(b64)], { type: it.mime });
+      list.appendChild(buildSegItem(it.name + ' ', blob, it.name));
+      (it.notes || []).forEach(addNote);
+    }
+    send({ type: CS.MSG.IMG_DONE, jobId }).catch(() => {});
+    $('wrap').appendChild(list);
+    $('info').textContent = `共 ${m.items.length} 张图片,每张可独立「编辑 / 复制 / 下载」`;
+    // 编辑态工具栏的复制/下载作用于第一张(mainTarget),文件名/格式从这里兜底
+    meta = { name: m.items[0].name, mime: m.items[0].mime, notes: [], widthPx: m.items[0].widthPx, heightPx: m.items[0].heightPx };
   }
 
   function showBlob(blob) {
@@ -125,7 +176,7 @@
     }
   }
 
-  /** 分卷/分段条目:缩略说明 + 编辑该卷 + 下载本卷(导出所见即所得) */
+  /** 分卷/分段/上传条目:说明 + 编辑/复制/下载该张(导出所见即所得,下载走格式面板) */
   function buildSegItem(label, blob, filename) {
     const item = document.createElement('div');
     item.className = 'seg-item';
@@ -133,16 +184,24 @@
     cap.className = 'cap';
     cap.textContent = label + ' ';
     const eb = document.createElement('button');
-    eb.textContent = '编辑本卷';
+    eb.textContent = '编辑';
     eb.addEventListener('click', () => Edit.setMode('edit'));
+    const cp = document.createElement('button');
+    cp.textContent = '复制';
+    cp.addEventListener('click', async () => {
+      const img = item.querySelector('img');
+      const edited = await Edit.exportBlob(img).catch(() => null);
+      copyPng(edited || blob);
+    });
     const dl = document.createElement('button');
-    dl.textContent = '下载本卷';
+    dl.textContent = '下载';
     dl.addEventListener('click', async () => {
       const img = item.querySelector('img');
-      const edited = await Edit.exportBlob(img);
-      downloadBlob(edited || blob, edited ? asPng(dotName(filename, '-标注')) : filename);
+      const edited = await Edit.exportBlob(img).catch(() => null);
+      const f = await finalize(edited || blob, edited ? asPng(dotName(filename, '-标注')) : filename);
+      downloadBlob(f.blob, f.name);
     });
-    cap.appendChild(eb); cap.appendChild(dl);
+    cap.appendChild(eb); cap.appendChild(cp); cap.appendChild(dl);
     const img = new Image();
     img.src = URL.createObjectURL(blob);
     img.onload = () => Edit.mount(img, blob, filename);
@@ -215,6 +274,42 @@
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
+  /* -------- P009 下载选项:格式 / 质量 / 缩放(默认原始直出,零回归) -------- */
+  const dlOpts = { format: 'original', quality: 85, scale: 100 };
+
+  function renameExt(name, mime) {
+    const ext = mime === 'image/jpeg' ? '.jpg' : mime === 'image/webp' ? '.webp' : '.png';
+    const i = name.lastIndexOf('.');
+    return (i > 0 ? name.slice(0, i) : name) + ext;
+  }
+  /** 按下载选项转码/缩放;不需要改动时原样返回(原 blob 直通) */
+  async function finalize(blob, name) {
+    const mime = dlOpts.format === 'original' ? (blob.type || 'image/png') : 'image/' + dlOpts.format;
+    if (dlOpts.scale === 100 && blob.type === mime) return { blob, name };
+    const bmp = await createImageBitmap(blob);
+    const w = Math.max(1, Math.round(bmp.width * dlOpts.scale / 100));
+    const h = Math.max(1, Math.round(bmp.height * dlOpts.scale / 100));
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const cx = c.getContext('2d');
+    if (mime === 'image/jpeg') { cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h); } // 透明底转 JPEG 垫白
+    cx.drawImage(bmp, 0, 0, w, h);
+    const out = await new Promise((res) => c.toBlob(res, mime, mime === 'image/png' ? undefined : dlOpts.quality / 100));
+    return { blob: out || blob, name: renameExt(name, mime) };
+  }
+
+  $('btn-dlopts').addEventListener('click', () => { $('dlpanel').hidden = !$('dlpanel').hidden; });
+  $('dl-format').addEventListener('change', () => {
+    dlOpts.format = $('dl-format').value;
+    $('dl-quality-row').style.visibility = (dlOpts.format === 'jpeg' || dlOpts.format === 'webp') ? 'visible' : 'hidden';
+  });
+  $('dl-quality').addEventListener('input', () => {
+    dlOpts.quality = +$('dl-quality').value;
+    $('dl-quality-v').textContent = $('dl-quality').value;
+  });
+  $('dl-scale').addEventListener('change', () => { dlOpts.scale = +$('dl-scale').value; });
+  $('dl-quality-row').style.visibility = 'hidden';
+
   /** 当前呈现的 blob:有标注→全分辨率合成 PNG;无标注→原始 blob(零回归) */
   async function displayBlob() {
     try {
@@ -226,11 +321,12 @@
 
   async function doDownload() {
     const { blob, name } = await displayBlob();
-    if (blob) downloadBlob(blob, name);
-  }
-  async function doCopy() {
-    const { blob } = await displayBlob();
     if (!blob) return;
+    const f = await finalize(blob, name);
+    downloadBlob(f.blob, f.name);
+  }
+  /** 复制到剪贴板(恒 PNG) */
+  async function copyPng(blob) {
     try {
       let out = blob;
       if (out.type !== 'image/png') {
@@ -245,6 +341,10 @@
     } catch (e) {
       flash('复制失败,请使用下载或在图片上右键复制');
     }
+  }
+  async function doCopy() {
+    const { blob } = await displayBlob();
+    if (blob) copyPng(blob);
   }
 
   $('btn-download').addEventListener('click', doDownload);

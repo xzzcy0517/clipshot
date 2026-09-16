@@ -9,7 +9,7 @@
  */
 globalThis.ClipShot = globalThis.ClipShot || {};
 (function (CS) {
-  CS.EXT_VER = '0.8.9';
+  CS.EXT_VER = '0.9.0';
 
   /** 一次性消息类型(request/response) */
   CS.MSG = {
@@ -17,6 +17,10 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     STATE_GET: 'cs/state.get',      // {} → {busyTabs:[{tabId,mode,phase,pct}]}
     JOB_START: 'cs/job.start',      // {tabId,mode,opts} → {ok,jobId} | {ok:false,error}
     JOB_CANCEL: 'cs/job.cancel',    // {tabId} → {ok}
+    // popup / preview → sw:图片上传(P009,result 入 imagestore,preview 用 jobId 拉取)
+    UPLOAD_BEGIN: 'cs/upload.begin',// {uploadId,name,mime,size} → {ok} | {ok:false,error}(逐张调用,同 uploadId 累积成一批)
+    UPLOAD_CHUNK: 'cs/upload.chunk',// {uploadId,b64} → {ok}(追加到当前张)
+    UPLOAD_DONE: 'cs/upload.done',  // {uploadId} → {ok,jobId} | {ok:false,error}
     // sw → popup 广播(无响应,发送方忽略失败)
     JOB_EVENT: 'cs/job.event',      // {jobId,tabId,mode,phase,pct,text}
     // preview → sw
@@ -67,6 +71,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     FIXED_CONTAINER: 'FIXED_CONTAINER',
     SCROLL_FAILED: 'SCROLL_FAILED',
     STALE_JOB: 'STALE_JOB',
+    FILE_TOO_LARGE: 'FILE_TOO_LARGE',
     UNKNOWN: 'UNKNOWN'
   };
 
@@ -86,6 +91,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     FIXED_CONTAINER: '该页面的滚动容器高度是 CSS 固定的(不随视口变化),无法整页捕获;请改用框选或元素截图',
     SCROLL_FAILED: '页面在滚动过程中发生变化(如刷新),请重试',
     STALE_JOB: '该截图缓存已过期,请重新截取',
+    FILE_TOO_LARGE: '图片超过大小上限(单张 ≤50MB,单批 ≤150MB)',
     UNKNOWN: '发生未知错误,请查看控制台'
   };
 

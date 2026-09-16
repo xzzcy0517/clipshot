@@ -77,6 +77,15 @@ chrome.runtime.onMessage.addListener((m, sender, sendResponse) => {
         case MSG.IMG_DONE:
           sendResponse(CS.imagestore.done(m.jobId));
           return;
+        case MSG.UPLOAD_BEGIN:
+          sendResponse(CS.imagestore.uploadBegin(m));
+          return;
+        case MSG.UPLOAD_CHUNK:
+          sendResponse(CS.imagestore.uploadChunk(m));
+          return;
+        case MSG.UPLOAD_DONE:
+          sendResponse(CS.imagestore.uploadDone(m));
+          return;
         case MSG.MARQUEE_RESULT:
         case MSG.MARQUEE_CANCEL: {
           const tabId = sender.tab && sender.tab.id;

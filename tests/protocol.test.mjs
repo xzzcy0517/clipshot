@@ -12,7 +12,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 (0, eval)(readFileSync(join(ROOT, 'common/messages.js'), 'utf8'));
 const CS = globalThis.ClipShot;
 
-const DIRS = ['background', 'content', 'popup', 'preview', 'options'];
+const DIRS = ['background', 'common', 'content', 'popup', 'preview', 'options'];
 const sources = {};
 for (const d of DIRS) {
   for (const f of readdirSync(join(ROOT, d))) {

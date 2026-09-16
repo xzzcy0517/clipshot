@@ -22,6 +22,13 @@
   </div>
 
   <fieldset>
+    <legend>图片工具</legend>
+    <button id="btn-openimg">打开图片编辑(可多选)</button>
+    <input type="file" id="file-img" accept="image/*" multiple hidden>
+    <div class="mini">上传后在新标签页标注/转格式/压缩;单张 ≤50MB,单批 ≤150MB</div>
+  </fieldset>
+
+  <fieldset>
     <legend>快捷设置</legend>
     <label>图片格式
       <select id="format">
@@ -41,6 +48,7 @@
 
   <script src="../common/messages.js"></script>
   <script src="../common/settings.js"></script>
+  <script src="../common/upload.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
