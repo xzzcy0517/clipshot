@@ -177,7 +177,7 @@
 
   if (typeof document === 'undefined') return; // node 下只导出纯逻辑
 
-  /* ================ 编辑器实现(v0.8.6:文字定稿无残留框/空白十字光标) ================ */
+  /* ================ 编辑器实现(v0.8.7:圆点档位/马赛克圆圈笔刷/暗色按钮修复) ================ */
   const TOOLS = [
     { id: 'rect', key: '1', glyph: '▭', tip: '方框(Shift 锁正方形)', kind: 'shape' },
     { id: 'ellipse', key: '2', glyph: '◯', tip: '椭圆(Shift 锁正圆)', kind: 'shape' },
@@ -191,7 +191,8 @@
   const TIERS = { shape: [2, 3, 5], mosaic: [16, 28, 44], highlight: [14, 22, 32], text: [14, 20, 28] };
   const COLORS = ['#f5222d', '#fa8c16', '#fadb14', '#52c41a', '#1677ff', '#722ed1', '#111111', '#ffffff'];
   const MOSAIC_CELL = 12;
-  const TIER_PX = [2, 4, 7]; // 三档线条的视觉厚度(CSS px,仅作示意,非实际线宽)
+  const TIER_DOT = [6, 9, 13]; // 三档实心圆直径(CSS px,对标微信:细=小圆 中=中圆 粗=大圆)
+  const TIER_TEXT = ['小', '中', '大']; // 文字三档字号标签
 
   const $ = (id) => document.getElementById(id);
   let overlay = null, ctx = null, stage = null, bar = null, previewBar = null, pop = null;
@@ -204,6 +205,7 @@
   let drag = null;
   let textInput = null;
   let selected = null;
+  let hoverPt = null; // 马赛克笔刷圆圈光标位置(client 坐标 + 目标)
   let raf = 0;
   let hasMain = false;
 
@@ -221,7 +223,7 @@
     pop.id = 'eb-pop';
     document.body.appendChild(pop);
     window.addEventListener('resize', () => { requestRedraw(); closePop(); });
-    stage.addEventListener('scroll', requestRedraw, { passive: true });
+    stage.addEventListener('scroll', () => { hoverPt = null; requestRedraw(); }, { passive: true });
     window.addEventListener('scroll', requestRedraw, { passive: true });
     stage.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
@@ -273,8 +275,8 @@
     let html = '';
     TIERS[kind].forEach((w, i) => {
       const inner = kind === 'text'
-        ? '<span class="ta" style="font-size:' + (10 + i * 4) + 'px">A</span>'
-        : '<i class="ln" style="height:' + TIER_PX[i] + 'px"></i>';
+        ? '<span class="ta">' + TIER_TEXT[i] + '</span>'
+        : '<i class="dot" style="width:' + TIER_DOT[i] + 'px;height:' + TIER_DOT[i] + 'px"></i>';
       html += '<button class="tier' + (i === tierByKind[kind] ? ' on' : '') + '" data-t="' + i + '" title="' +
         (kind === 'text' ? '字号 ' + w + 'px' : '线宽 ' + w + 'px') + '">' + inner + '</button>';
     });
@@ -356,6 +358,7 @@
 
   function setTool(id) {
     tool = id;
+    hoverPt = null;
     for (const b of bar.querySelectorAll('[data-tool]')) b.classList.toggle('on', b.dataset.tool === id);
     document.body.dataset.tool = id;
     if (id !== 'text') commitText();
@@ -370,7 +373,7 @@
     if (bar) bar.style.display = m === 'edit' ? 'flex' : 'none';
     if (previewBar) previewBar.style.display = (m !== 'edit' && hasMain) ? 'flex' : 'none';
     if (m === 'edit') { setTool(tool); openPopFor(tool); }
-    else { commitText(); closePop(); drag = null; select(); }
+    else { commitText(); closePop(); drag = null; hoverPt = null; select(); }
     requestRedraw();
   }
 
@@ -411,6 +414,18 @@
     if (drag && drag.ann) {
       const t = targets.get(drag.imgEl);
       if (t && t.bmp) drawAnn(ctx, drag.ann, viewOf(t));
+    }
+    // 马赛克笔刷:跟随鼠标的圆圈光标(白圈+黑描边,任意底色可见),对标微信
+    if (mode === 'edit' && tool === 'mosaic' && hoverPt && hoverPt.t.bmp) {
+      const view = viewOf(hoverPt.t);
+      const r = Math.max(3, view.s * curWidth('mosaic') / 2);
+      ctx.save();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(0,0,0,.55)';
+      ctx.beginPath(); ctx.arc(hoverPt.x, hoverPt.y, r + 0.75, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = '#fff';
+      ctx.beginPath(); ctx.arc(hoverPt.x, hoverPt.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
     }
   }
 
@@ -620,6 +635,7 @@
   }
   function onPointerMove(e) {
     const p0 = imgPoint(e);
+    if (mode === 'edit' && tool === 'mosaic') trackBrush(e); // 涂抹中也要跟手
     if (!drag) { updateHoverCursor(e, p0); return; }
     const t = targets.get(drag.imgEl); if (!t) return;
     const rect = t.imgEl.getBoundingClientRect();
@@ -655,9 +671,17 @@
     }
     requestRedraw();
   }
+  /** 马赛克笔刷圆圈:记录悬停位置并触发重绘(圆圈画在 overlay 上) */
+  function trackBrush(e) {
+    const t0 = firstTargetAt(e);
+    hoverPt = t0 ? { x: e.clientX, y: e.clientY, t: t0 } : null;
+    requestRedraw();
+  }
   function updateHoverCursor(e, p0) {
     let cur = mode === 'edit' ? 'crosshair' : '';
-    if (mode === 'edit' && p0) {
+    if (mode === 'edit' && tool === 'mosaic') {
+      cur = hoverPt ? 'none' : 'crosshair'; // 圆圈光标取代系统光标
+    } else if (mode === 'edit' && p0) {
       const t0 = firstTargetAt(e);
       if (t0) {
         const hs = selected && selected.t === t0 ? P.handlePoints(selected.ann) : [];

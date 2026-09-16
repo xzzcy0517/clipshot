@@ -7,8 +7,6 @@ body {
 @media (prefers-color-scheme: dark) {
   body { color: #dde3ee; background: #101318; }
   header { background: #171a21; border-color: #2a3040; }
-  button { background: #232833; border-color: #3a4150; color: #dde3ee; }
-  button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
 }
 header {
   display: flex; justify-content: space-between; align-items: center; gap: 12px;
@@ -57,8 +55,8 @@ button:hover { filter: brightness(1.05); }
   box-shadow: 0 4px 14px rgba(0,0,0,.2);
 }
 #eb-pop button.tier { padding: 3px 10px; min-width: 36px; display: inline-flex; align-items: center; justify-content: center; }
-#eb-pop button.tier .ln { display: block; width: 20px; background: currentColor; border-radius: 2px; }
-#eb-pop button.tier .ta { line-height: 1; font-weight: 600; }
+#eb-pop button.tier .dot { display: block; background: currentColor; border-radius: 50%; }
+#eb-pop button.tier .ta { font-size: 12px; line-height: 1; font-weight: 600; }
 #eb-pop button.tier.on { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
 #eb-pop .psp { width: 1px; height: 18px; background: #d6dbe4; }
 #eb-pop i.pcolor { width: 16px; height: 16px; border-radius: 50%; cursor: pointer; border: 1px solid rgba(0,0,0,.22); display: inline-block; }
@@ -79,10 +77,15 @@ button:hover { filter: brightness(1.05); }
 #previewbar button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
 body.editing #previewbar { display: none !important; }
 body.editing #stage { cursor: crosshair; }
+body.editing[data-tool="mosaic"] #stage { cursor: none; }
 @media (prefers-color-scheme: dark) {
+  /* 按钮暗色必须放在所有浅色基础规则之后(同优先级后者生效),否则白底白字 */
+  button { background: #232833; border-color: #3a4150; color: #dde3ee; }
+  button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
   #editbar, #previewbar, #eb-pop { background: #171a21; border-color: #3a4150; }
   #eb-textinput { background: rgba(23,26,33,.95); }
-  #editbar button, #previewbar button { background: #232833; border-color: #3a4150; color: #dde3ee; }
-  #editbar .primary, #editbar button.on, #previewbar button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+  #editbar button, #previewbar button, #eb-pop button { background: #232833; border-color: #3a4150; color: #dde3ee; }
+  #editbar .primary, #editbar button.on, #previewbar button.primary, #eb-pop button.tier.on { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+  #eb-pop i.pcolor { border-color: rgba(255,255,255,.35); }
   .esep { background: #3a4150; }
 }
