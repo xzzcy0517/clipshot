@@ -106,15 +106,24 @@
     }
     return { x: Math.min(x0, x0 + w), y: Math.min(y0, y0 + h), bw: Math.abs(w), bh: Math.abs(h) };
   };
-  /** 命中检测:返回 'body' 或 null;椭圆用归一半径,文字用缓存盒 */
+  /** 命中检测:返回 'body' 或 null;矩形/椭圆只命中描边带(内部空白可继续套画),文字用缓存盒 */
   P.hitAnn = function (a, x, y, slop) {
-    if (a.tool === 'rect' || a.tool === 'ellipse') {
-      if (a.tool === 'rect') {
-        return x >= a.x - slop && x <= a.x + a.bw + slop && y >= a.y - slop && y <= a.y + a.bh + slop ? 'body' : null;
-      }
+    if (a.tool === 'rect') {
+      const band = slop + (a.w || 2) / 2;
+      const inOuter = x >= a.x - band && x <= a.x + a.bw + band && y >= a.y - band && y <= a.y + a.bh + band;
+      if (!inOuter) return null;
+      const inInner = x >= a.x + band && x <= a.x + a.bw - band && y >= a.y + band && y <= a.y + a.bh - band;
+      return inInner ? null : 'body';
+    }
+    if (a.tool === 'ellipse') {
       const rx = a.bw / 2 || 1, ry = a.bh / 2 || 1;
-      const nx = (x - (a.x + rx)) / (rx + slop), ny = (y - (a.y + ry)) / (ry + slop);
-      return nx * nx + ny * ny <= 1 ? 'body' : null;
+      const band = slop + (a.w || 2) / 2;
+      const cx = a.x + rx, cy = a.y + ry;
+      const outer = ((x - cx) / (rx + band)) ** 2 + ((y - cy) / (ry + band)) ** 2;
+      if (outer > 1) return null;
+      const irx = Math.max(rx - band, 0.01), iry = Math.max(ry - band, 0.01);
+      const inner = ((x - cx) / irx) ** 2 + ((y - cy) / iry) ** 2;
+      return inner < 1 ? null : 'body';
     }
     if (a.tool === 'arrow') return P.ptSeg(x, y, a.x0, a.y0, a.x1, a.y1) <= slop + a.w / 2 ? 'body' : null;
     if (a.tool === 'text') {
@@ -168,7 +177,7 @@
 
   if (typeof document === 'undefined') return; // node 下只导出纯逻辑
 
-  /* ================ 编辑器实现(v0.8.4:选中即弹选项条/即改即生效/多行文字) ================ */
+  /* ================ 编辑器实现(v0.8.5:选项条常驻/描边带命中/文字定稿不连锁) ================ */
   const TOOLS = [
     { id: 'rect', key: '1', glyph: '▭', tip: '方框(Shift 锁正方形)', kind: 'shape' },
     { id: 'ellipse', key: '2', glyph: '◯', tip: '椭圆(Shift 锁正圆)', kind: 'shape' },
@@ -285,15 +294,19 @@
     pop.querySelectorAll('.tier').forEach((b) => b.addEventListener('click', (e) => {
       e.stopPropagation();
       applyTier(kind, +b.dataset.t);
-      if (kind === 'text' && textInput) refreshPop(); else closePop();
+      refreshPop(); // 选项条常驻,即改即生效不消失
     }));
     pop.querySelectorAll('.pcolor').forEach((b) => b.addEventListener('click', (e) => {
       e.stopPropagation();
       applyColor(+b.dataset.c);
-      if (textInput) refreshPop(); else closePop();
+      refreshPop();
     }));
   }
   function closePop() { if (pop) { pop.style.display = 'none'; pop.innerHTML = ''; } }
+  function openPopFor(id) {
+    const btn = bar && bar.querySelector('[data-tool="' + id + '"]');
+    if (btn) openPop(toolDef(id), btn);
+  }
   function refreshPop() {
     if (!pop || pop.style.display !== 'flex') return;
     pop.querySelectorAll('.tier').forEach((x) => x.classList.toggle('on', +x.dataset.t === tierByKind[pop._kind]));
@@ -356,7 +369,7 @@
     document.body.classList.toggle('editing', m === 'edit');
     if (bar) bar.style.display = m === 'edit' ? 'flex' : 'none';
     if (previewBar) previewBar.style.display = (m !== 'edit' && hasMain) ? 'flex' : 'none';
-    if (m === 'edit') { setTool(tool); }
+    if (m === 'edit') { setTool(tool); openPopFor(tool); }
     else { commitText(); closePop(); drag = null; select(); }
     requestRedraw();
   }
@@ -559,16 +572,12 @@
       setTool(a.tool); // 工具栏高亮跟随当前选中标注类型(用户反馈)
       syncFromAnn(a); // 颜色/线宽档位回显为该标注当前值
       // 选项条自动弹出,可直接改颜色/线宽(文字输入期间由 openText 自行弹出)
-      if (mode === 'edit' && !textInput) {
-        const btn = bar.querySelector('[data-tool="' + a.tool + '"]');
-        if (btn) openPop(toolDef(a.tool), btn);
-      }
+      if (mode === 'edit' && !textInput) openPopFor(a.tool);
     }
   }
   function onPointerDown(e) {
     if (mode !== 'edit' || e.button !== 0) return;
     if ((bar && bar.contains(e.target)) || (pop && pop.contains(e.target))) { return; }
-    closePop();
     const hit = eventImg(e);
     if (!hit) { commitText(); select(); requestRedraw(); return; }
     const target = hit.t;
@@ -585,7 +594,10 @@
       requestRedraw(); e.preventDefault(); return;
     }
     // 空白:新画
-    if (tool === 'text') { commitText(); openText(target, hit.pt); return; }
+    if (tool === 'text') {
+      if (textInput) { commitText(); requestRedraw(); return; } // 先定稿为最终态,不连锁开新输入框
+      openText(target, hit.pt); return;
+    }
     commitText(); select();
     drag = {
       mode: 'draw', imgEl: target.imgEl, tool, kind: toolDef(tool).kind, shift: e.shiftKey,
@@ -751,8 +763,7 @@
     document.body.appendChild(inp);
     autogrowText();
     // 输入期间选项条保持展开:字号/颜色即点即改
-    const btn = bar.querySelector('[data-tool="text"]');
-    if (btn) openPop(toolDef('text'), btn);
+    openPopFor('text');
     if (existing) { inp.focus(); inp.select(); } else setTimeout(() => inp.focus(), 0);
   }
   function styleTextInput() {
@@ -836,7 +847,7 @@
       if (meta && e.key === 'c') return; // 让宿主复制
       if (/^[1-7]$/.test(e.key)) {
         const td = TOOLS.find((x) => x.key === e.key);
-        if (td) { setTool(td.id); closePop(); }
+        if (td) { setTool(td.id); openPopFor(td.id); }
         return;
       }
     } else if (e.key === 'e' || e.key === 'E') {

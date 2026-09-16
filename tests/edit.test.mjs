@@ -89,12 +89,16 @@ let ha = P.handlePoints({ tool: 'arrow', x0: 0, y0: 0, x1: 10, y1: 10, w: 2 });
 assert.deepEqual(ha.map((p) => p.dir), ['p0', 'p1']);
 assert.deepEqual(P.handlePoints({ tool: 'text', x: 0, y: 0, text: 'a', fs: 20 }), []);
 
-/* ---------- 命中 ---------- */
-assert.equal(P.hitAnn(box, 60, 45, 4), 'body');
+/* ---------- 命中(矩形/椭圆只命中描边带,内部可套画) ---------- */
+assert.equal(P.hitAnn(box, 60, 45, 4), null, '矩形内部中心不该命中(可套画小矩形)');
+assert.equal(P.hitAnn(box, 60, 22, 4), 'body', '矩形上边缘命中');
+assert.equal(P.hitAnn(box, 12, 45, 4), 'body', '矩形左边缘命中');
 assert.equal(P.hitAnn(box, 300, 45, 4), null);
 const ell = { tool: 'ellipse', x: 0, y: 0, bw: 100, bh: 40, w: 2 };
 assert.equal(P.hitAnn(ell, 95, 38, 2), null, '椭圆角区域不该命中');
-assert.equal(P.hitAnn(ell, 50, 35, 2), 'body');
+assert.equal(P.hitAnn(ell, 50, 20, 2), null, '椭圆中心不该命中');
+assert.equal(P.hitAnn(ell, 50, 35, 2), null, '椭圆描边带以内不该命中');
+assert.equal(P.hitAnn(ell, 50, 39, 2), 'body', '椭圆下边缘命中');
 const ar = { tool: 'arrow', x0: 0, y0: 0, x1: 100, y1: 0, w: 2 };
 assert.equal(P.hitAnn(ar, 50, 3, 4), 'body');
 assert.equal(P.hitAnn(ar, 50, 20, 4), null);
