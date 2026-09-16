@@ -177,7 +177,7 @@
 
   if (typeof document === 'undefined') return; // node 下只导出纯逻辑
 
-  /* ================ 编辑器实现(v0.8.5:选项条常驻/描边带命中/文字定稿不连锁) ================ */
+  /* ================ 编辑器实现(v0.8.6:文字定稿无残留框/空白十字光标) ================ */
   const TOOLS = [
     { id: 'rect', key: '1', glyph: '▭', tip: '方框(Shift 锁正方形)', kind: 'shape' },
     { id: 'ellipse', key: '2', glyph: '◯', tip: '椭圆(Shift 锁正圆)', kind: 'shape' },
@@ -596,6 +596,7 @@
     // 空白:新画
     if (tool === 'text') {
       if (textInput) { commitText(); requestRedraw(); return; } // 先定稿为最终态,不连锁开新输入框
+      if (selected) { select(); requestRedraw(); return; } // 有选中框时先取消选中(box 消失)
       openText(target, hit.pt); return;
     }
     commitText(); select();
@@ -655,7 +656,7 @@
     requestRedraw();
   }
   function updateHoverCursor(e, p0) {
-    let cur = mode === 'edit' ? (tool === 'text' ? 'text' : 'crosshair') : '';
+    let cur = mode === 'edit' ? 'crosshair' : '';
     if (mode === 'edit' && p0) {
       const t0 = firstTargetAt(e);
       if (t0) {
@@ -808,13 +809,14 @@
         if (fs && fs !== existing.fs) { existing.fs = fs; changed = true; }
         if (changed) { measureText(existing); t.store.edit(existing, before); }
       }
+      select(); // 定稿即最终态:不留选中框,只显示文字
       requestRedraw(); return;
     }
     if (v) {
       const a = { tool: 'text', x: pt.x, y: pt.y, text: v, color, fs };
       measureText(a);
       t.store.add(a);
-      select(t, a);
+      select(); // 同上:定稿不带选中框
       requestRedraw();
     }
   }
