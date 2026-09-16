@@ -174,7 +174,12 @@
   function addNote(text) {
     const d = document.createElement('div');
     d.className = 'note';
-    d.textContent = text;
+    const s = document.createElement('span');
+    s.textContent = text;
+    const x = document.createElement('button');
+    x.className = 'nx'; x.textContent = '×'; x.title = '移除这条提示';
+    x.addEventListener('click', () => d.remove());
+    d.append(s, x);
     $('notes').appendChild(d);
   }
 
