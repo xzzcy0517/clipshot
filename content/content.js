@@ -322,6 +322,48 @@
     return { ok: true, prev, applied: el.scrollTop };
   }
 
+  /* ------------------------------------------- 段间内容锚点(P008 方案二) */
+  // 定位基准从「scrollTop 数值」变成「内容」:已截区域块高被实测值替换后,
+  // 缝口内容会漂移;锚点记录「缝口下方某元素的内容偏移」,下一段按其新偏移
+  // 修正段起点。元素被虚拟列表回收时返回 found:false,调用方降级数值定位。
+  let anchorSeq = 0;
+  const ANCHOR_ATTR = 'data-cs-anchor';
+
+  /** 元素在活动滚动容器内容坐标系里的 top(与 rectOf 同口径) */
+  function contentTopOf(sc, br) {
+    if (sc.kind === 'internal') {
+      const r = sc.el.getBoundingClientRect();
+      return br.top - r.top + sc.el.scrollTop;
+    }
+    return br.top + (window.scrollY || 0);
+  }
+
+  /** 在可视区底部上方 ~40px 的缝口处挑一个元素打标,返回其内容偏移与缝口位置 */
+  function anchorMark() {
+    const sc = findScroller();
+    const r = sc.kind === 'internal'
+      ? sc.el.getBoundingClientRect()
+      : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+    const x = r.left + Math.min(200, Math.max(20, r.width / 2));
+    const y = r.top + Math.max(2, r.height - 40);
+    let t = document.elementFromPoint(x, y);
+    while (t && t.getBoundingClientRect().height < 2 && t.parentElement) t = t.parentElement;
+    if (!t || !t.tagName) return { ok: false };
+    const id = String(++anchorSeq);
+    try { t.setAttribute(ANCHOR_ATTR, id); } catch (e) { return { ok: false }; }
+    const top = contentTopOf(sc, t.getBoundingClientRect());
+    const bottom = sc.kind === 'internal'
+      ? sc.el.scrollTop + sc.el.clientHeight
+      : (window.scrollY || 0) + window.innerHeight;
+    return { ok: true, id, top, bottom };
+  }
+
+  function anchorFind(id) {
+    const t = document.querySelector('[' + ANCHOR_ATTR + '="' + String(id) + '"]');
+    if (!t) return { ok: true, found: false };
+    return { ok: true, found: true, top: contentTopOf(findScroller(), t.getBoundingClientRect()) };
+  }
+
   /* ------------------------------------------------------- 框选 marquee */
 
   let mq = null;
@@ -422,6 +464,8 @@
       case MSG.SCROLL_TO: return scrollTo(m.y);
       case MSG.SCROLL_INTO_VIEW: return scrollIntoViewPick();
       case MSG.RENDER_STABLE: return renderStable(m.timeoutMs);
+      case MSG.ANCHOR_MARK: return anchorMark();
+      case MSG.ANCHOR_FIND: return anchorFind(m.id);
       case MSG.HIDE_FIXED: return hideFixed();
       case MSG.RESTORE_FIXED: return restoreFixed();
       case MSG.PICK_GET: return pickGet(m.maxAgeMs);

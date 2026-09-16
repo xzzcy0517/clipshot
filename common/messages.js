@@ -9,7 +9,7 @@
  */
 globalThis.ClipShot = globalThis.ClipShot || {};
 (function (CS) {
-  CS.EXT_VER = '0.8.8';
+  CS.EXT_VER = '0.8.9';
 
   /** 一次性消息类型(request/response) */
   CS.MSG = {
@@ -30,6 +30,8 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     SCROLL_STOP: 'cs/scroll.stop',  // {reason} → {ok}
     SCROLL_TO: 'cs/scroll.to',      // {y 文档CSS px} → {ok,prev,applied}(分段/元素捕获定位)
     RENDER_STABLE: 'cs/render.stable',// {timeoutMs} → {ok,stable,docH,nodes,clientH,waitedMs}(虚拟列表渲染稳定门控)
+    ANCHOR_MARK: 'cs/anchor.mark',    // {} → {ok,id,top,bottom} 在可视区底部缝口打内容锚点(P008)| {ok:false}
+    ANCHOR_FIND: 'cs/anchor.find',    // {id} → {ok,found,top}(top=活动滚动容器内容坐标)
     SCROLL_INTO_VIEW: 'cs/scroll.intoView',// {} → {ok,prevY,rectVp,fits}(右键元素滚入视野,内部容器页天然正确)
     HIDE_FIXED: 'cs/hideFixed',     // {} → {ok,fixedCount,stickyCount}
     RESTORE_FIXED: 'cs/restoreFixed',// {} → {ok,restored}

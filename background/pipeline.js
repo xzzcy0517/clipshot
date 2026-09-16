@@ -289,6 +289,13 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       abortCheck(job);
       const scrollInfo = await runAutoScroll(job, s);
 
+      // P008 方案一:高度收敛门控。飞书类虚拟列表的总高在滚动结束后仍会随
+      // 「估算块高 → 实测块高」替换而继续增长(用户实测:滚动中进度条越滚越长);
+      // 不收敛就拍 → capH 失真 + 捕获中内容漂移 → 段间重复。
+      phase(job, 'scroll', 50);
+      toast(job, '等待页面高度收敛');
+      const heightConverged = await waitHeightConverged(job);
+
       phase(job, 'backToTop', 55);
       if (s.hideFixed) {
         // 第二轮:收编滚动过程中新出现的 fixed/sticky
@@ -319,6 +326,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       // ── P003 治理:注记降噪(过程不逐条喊,最终一条路径说明)+ 三层上限
       const notes = [];
       if (scrollInfo.infinite) notes.push('检测到无限滚动,仅包含已加载部分');
+      if (!heightConverged) notes.push('页面高度未完全收敛,如中段有重复请重试一次');
       if (isInternal) notes.push('检测到内部滚动容器(飞书/Notion 类文档),已按容器高度捕获');
       if (scrollInfo.stoppedBy === 'none') notes.push('未检测到可滚动内容,结果可能不完整');
       // ① 总长闸门:截断取前段并明示,绝不无限截碎图串
@@ -504,6 +512,29 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     w(port);
   };
 
+  /**
+   * P008 方案一:等虚拟列表总高收敛——连续两轮 RENDER_STABLE 等高才算完;
+   * 长高则回底再滚一轮逼出剩余懒加载;6 轮不收敛降级继续(调用方加提示注记)。
+   * 结束时回顶,不影响后续捕获流程。
+   */
+  async function waitHeightConverged(job) {
+    let lastH = -1, converged = false;
+    for (let round = 0; round < 6 && !converged; round++) {
+      abortCheck(job);
+      const rs = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 3000 }, 8000).catch(() => null);
+      const h = rs && rs.docH > 0 ? Math.round(rs.docH) : -1;
+      if (h > 0 && h === lastH) { converged = true; break; }
+      if (h > 0 && lastH > 0 && h > lastH + 2) {
+        await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: h }, 4000).catch(() => null);
+        await CS.util.sleep(500);
+        await CS.network.waitForIdle(job.tabId, 300, 1500).catch(() => {});
+      }
+      if (h > 0) lastH = h;
+    }
+    try { await sendToTab(job.tabId, { type: MSG.SCROLL_TO, y: 0 }, 4000); } catch (e) { /* noop */ }
+    return converged;
+  }
+
   /** 幂等清除视口仿真(即使从未 set 也不抛)。 */
   async function clearViewportEmulation(tabId) {
     try { await CS.cdp.call(tabId, 'Emulation.clearDeviceMetricsOverride', {}, 3000); } catch (e) { /* noop */ }
@@ -565,11 +596,23 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     }
 
     let pos = 0, totalH = Infinity, iter = 0, consecutiveFail = 0;
+    // P008 方案二:段间内容锚点 {id, margin}。margin = 打标时锚块到段底缝口的
+    // 内容距离(内容相对量,不随上方漂移变化);下一段按锚块当前偏移重算起点,
+    // 定位基准从「scrollTop 数值」变成「内容」,已截区域长高不再造成段间重复。
+    let anchor = null;
     while (iter++ < 200) {
       abortCheck(job);
       // 探测在当前仿真配置下进行(与拍摄同视口,高度口径一致)
       const probe = await sendToTab(job.tabId, { type: MSG.RENDER_STABLE, timeoutMs: 2500 }, 6000).catch(() => null);
       if (probe && probe.docH > 0) totalH = probe.docH;
+      // 锚点校正:锚块被虚拟列表回收(found:false)时降级为数值推进
+      if (anchor) {
+        const af = await sendToTab(job.tabId, { type: MSG.ANCHOR_FIND, id: anchor.id }, 3000).catch(() => null);
+        if (af && af.found && typeof af.top === 'number') {
+          pos = Math.max(0, Math.round(af.top + anchor.margin));
+        }
+        anchor = null;
+      }
       const stopAt = Math.min(totalH, limitH); // 总长闸门同样约束分段
       if (!(pos < stopAt - 2)) break;
       let h = Math.min(baseH, Math.ceil(stopAt - pos));
@@ -604,6 +647,9 @@ globalThis.ClipShot = globalThis.ClipShot || {};
             if (freshH !== Infinity) totalH = freshH; // 采信最新实测总高
           }
           applied = finalApplied;
+          // P008:拍摄前在段底缝口打内容锚点,供下一段校正起点
+          const am = await sendToTab(job.tabId, { type: MSG.ANCHOR_MARK }, 3000).catch(() => null);
+          if (am && am.ok && am.id) anchor = { id: am.id, margin: Math.max(2, Math.round(am.bottom - am.top)) };
           const cand = await capturePageScreenshot(job.tabId, captureOpts(s), 30000);
           if (CS.geom.aspectOk(sizeFromB64(cand), capW, h, 0.08)) b64 = cand;
         } catch (e) {
@@ -615,6 +661,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
         consecutiveFail++;
         if (consecutiveFail >= 2) throw mkErr(ERR.CAPTURE_TIMEOUT);
         pos = applied + h; // 失败也推进,避免死循环
+        anchor = null;     // 本段未拍到,锚点失效,下段走数值推进
         continue;
       }
       consecutiveFail = 0;
