@@ -54,6 +54,23 @@ r = geom.normalizeMetrics({
 assert.equal(r.cssH, 5000);
 assert.equal(r.scrollY, 400);
 
+// 真机样本②:Chrome 152 / macOS / dpr1 / 飞书超长虚拟滚动文档(用户面板诊断导出,2026-09-16)。
+// 与样本①同形态;要点:document 恒 934,内容在内部容器(scrollerH 17693),
+// 含头部偏移后 17773 > MAX_CAPTURE_DIM → 整幅仿真不可用,必走分段(P008 治理对象)。
+const chrome152long = {
+  contentSize: { x: 0, y: 0, width: 1920, height: 934 },
+  cssContentSize: { x: 0, y: 0, width: 1920, height: 934 },
+  cssLayoutViewport: { clientHeight: 934, clientWidth: 1920, pageX: 0, pageY: 0 },
+  cssVisualViewport: { clientHeight: 934, clientWidth: 1920, offsetX: 0, offsetY: 0, pageX: 0, pageY: 0, scale: 1, zoom: 1 },
+  layoutViewport: { clientHeight: 934, clientWidth: 1920, pageX: 0, pageY: 0 },
+  visualViewport: { clientHeight: 934, clientWidth: 1920, offsetX: 0, offsetY: 0, pageX: 0, pageY: 0, scale: 1, zoom: 1 }
+};
+r = geom.normalizeMetrics(chrome152long);
+assert.deepEqual(r, { cssW: 1920, cssH: 934, psf: 1, scrollX: 0, scrollY: 0, sizeSource: 'cssContentSize' });
+// 该页的几何处置:17773 = 17693(scrollerH) + 64(scrollerTop) + 16(余量)
+assert.equal(geom.pickEmulationScale(1920, 17773, 1, 60 * 1024 * 1024), 0, '超单边上限必须落分段');
+assert.equal(geom.pickEmulationScale(1920, 15000, 1, 60 * 1024 * 1024), 1, '上限内仍可整幅');
+
 // 空对象兜底
 r = geom.normalizeMetrics({});
 assert.equal(r.cssW, 1); assert.equal(r.psf, 1);

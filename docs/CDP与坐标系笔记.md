@@ -49,6 +49,26 @@ dpr **不**取自 CDP:取 content 的 `window.devicePixelRatio`(即 surface 输�
 - 飞书页 `cssContentSize` 高度 = 视口高(934),证实 document 不滚动、内容在内部
   容器 → 捕获总高必须取容器 `scrollHeight`(v0.2.1 设计正确,实测拼接通过)。
 
+### 样本 2:飞书超长文档(虚拟滚动)@ Chrome 152 / macOS / dpr 1(2026-09-16 用户面板诊断导出)
+
+```json
+{
+  "cssContentSize": { "height": 934, "width": 1920, "x": 0, "y": 0 },
+  "cssVisualViewport": { "clientHeight": 934, "clientWidth": 1920, "pageX": 0, "pageY": 0, "scale": 1, "zoom": 1 },
+  "page": { "docH": 934, "scroller": "internal", "scrollerPath": "div.bear-web-x-container",
+            "scrollerW": 1905, "scrollerH": 17693, "scrollerTop": 64 }
+}
+```
+
+判读(已回灌 `tests/geom.test.mjs` 真机用例②):
+- 与样本 1 同形态,`normalizeMetrics` 归一化路径再次验证(cssW 1920);
+- **document 恒 934,内容在内部容器,容器高 17693 → 含头部偏移后 17773 >
+  单边上限 16000,必走分段路径**(约 5 段 × 4000px);
+- 用户实测症状:中段重复;且滚动中总高持续增长(「进度条越滚越长」)。
+  根因假设与治理方案见 **P008(评审中)**:分段定位只锁 scrollTop 数值不锁
+  内容身份,已截区域块高被实测值替换后后续内容下移 → 段间重叠。
+  **该结论待 P008 方案实测验证后回填,标 pending。**
+
 ### 待收集样本
 - 普通 window 滚动页 @ dpr 2(验证 `pageY` 随滚动的语义 + 捕获输出是 CSS 还是设备分辨率)
 - 系统缩放 125%(dpr 1.25,验证分段堆叠不漂缝)
