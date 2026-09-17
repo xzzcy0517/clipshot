@@ -13,5 +13,6 @@ node tests/sw-boot.test.mjs
 node tests/geom.test.mjs
 node tests/protocol.test.mjs
 node tests/edit.test.mjs
+node tests/imagestore.test.mjs
 
 echo "✔ 全部静态校验通过"

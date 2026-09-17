@@ -72,7 +72,7 @@ chrome.runtime.onMessage.addListener((m, sender, sendResponse) => {
           sendResponse(CS.imagestore.meta(m.jobId));
           return;
         case MSG.IMG_CHUNK:
-          sendResponse(CS.imagestore.chunk(m.jobId, m.index));
+          sendResponse(CS.imagestore.chunk(m.jobId, m.item, m.index));
           return;
         case MSG.IMG_DONE:
           sendResponse(CS.imagestore.done(m.jobId));

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ClipShot 滚动长截图",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "整页滚动长截图 / 可视区域 / 元素 / 框选截图,基于 chrome.debugger。自用扩展。",
   "minimum_chrome_version": "126",
   "permissions": [

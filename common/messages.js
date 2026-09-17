@@ -9,7 +9,7 @@
  */
 globalThis.ClipShot = globalThis.ClipShot || {};
 (function (CS) {
-  CS.EXT_VER = '0.9.0';
+  CS.EXT_VER = '0.9.1';
 
   /** 一次性消息类型(request/response) */
   CS.MSG = {
