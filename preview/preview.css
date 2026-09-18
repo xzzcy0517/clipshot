@@ -157,9 +157,10 @@ button:hover { filter: brightness(1.05); }
 #lb-view {
   flex: 1; overflow: auto; display: flex; padding: 0 16px 16px;
 }
-#lb-view img { margin: auto; display: block; box-shadow: 0 2px 18px rgba(0,0,0,.5); cursor: zoom-in; }
+/* flex:none 防主轴压缩;非适应态 align-self:flex-start 防交叉轴 stretch 拉高——两个默认值都会把图压变形 */
+#lb-view img { flex: none; margin: auto; display: block; box-shadow: 0 2px 18px rgba(0,0,0,.5); cursor: zoom-in; }
 #lb-view img.fit { max-width: 100%; max-height: 100%; object-fit: contain; }
-#lb-view img:not(.fit) { cursor: zoom-out; margin: 0 auto; } /* 原大超屏时顶对齐起滚,避免 flex 居中裁掉顶部 */
+#lb-view img:not(.fit) { cursor: zoom-out; margin: 0 auto; align-self: flex-start; }
 .open-state { margin: 90px auto; text-align: center; }
 .open-state p { margin-bottom: 14px; opacity: .75; }
 body.editing #previewbar { display: none !important; }

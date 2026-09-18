@@ -542,7 +542,7 @@
   function openLightbox(which) {
     if (!dlgCtx) return;
     if (which === 'out' && !dlgCtx.outUrl) return;
-    lb = { which, fit: true };
+    lb = { which, fit: true, zoom: 1 };
     $('lightbox').hidden = false;
     applyLightbox(false);
     window.addEventListener('keydown', onLbKey, true); // 捕获相:先于编辑器/弹窗快捷键
@@ -568,8 +568,8 @@
     const render = () => {
       if (!lb) return;
       img.classList.toggle('fit', lb.fit);
-      img.style.width = lb.fit ? '' : img.naturalWidth + 'px';
-      $('lb-zoom').textContent = lb.fit ? '100% 原大' : '适应窗口';
+      img.style.width = lb.fit ? '' : Math.max(1, Math.round(img.naturalWidth * lb.zoom)) + 'px';
+      $('lb-zoom').textContent = lb.fit ? '适应窗口' : Math.round(lb.zoom * 100) + '%';
       view.scrollLeft = fx * view.scrollWidth;
       view.scrollTop = fy * view.scrollHeight;
     };
@@ -584,8 +584,29 @@
   }
   $('lb-src').addEventListener('click', () => { if (lb && lb.which !== 'src') { lb.which = 'src'; applyLightbox(true); } });
   $('lb-out').addEventListener('click', () => { if (lb && lb.which !== 'out' && dlgCtx && dlgCtx.outUrl) { lb.which = 'out'; applyLightbox(true); } });
-  $('lb-zoom').addEventListener('click', () => { if (lb) { lb.fit = !lb.fit; applyLightbox(true); } });
-  $('lb-img').addEventListener('click', () => { if (lb) { lb.fit = !lb.fit; applyLightbox(true); } });
+  /** 点图/缩放按钮:适应窗口 ↔ 100% 原大 */
+  function lbToggle() { if (!lb) return; if (lb.fit) { lb.fit = false; lb.zoom = 1; } else lb.fit = true; applyLightbox(true); }
+  /** 无级缩放:适应态先按当前显示比例起算;滚动位置按比例保持 */
+  function lbStep(k) {
+    if (!lb) return;
+    const img = $('lb-img');
+    if (!img.naturalWidth) return;
+    const cur = lb.fit
+      ? Math.min($('lb-view').clientWidth / img.naturalWidth, $('lb-view').clientHeight / img.naturalHeight)
+      : lb.zoom;
+    lb.fit = false;
+    lb.zoom = Math.min(8, Math.max(0.05, cur * k));
+    applyLightbox(true);
+  }
+  $('lb-zoom').addEventListener('click', lbToggle);
+  $('lb-img').addEventListener('click', lbToggle);
+  $('lb-zin').addEventListener('click', () => lbStep(1.25));
+  $('lb-zout').addEventListener('click', () => lbStep(1 / 1.25));
+  $('lb-view').addEventListener('wheel', (e) => {
+    if (!lb || !e.ctrlKey) return;
+    e.preventDefault();
+    lbStep(e.deltaY < 0 ? 1.1 : 1 / 1.1);
+  }, { passive: false });
   $('lb-close').addEventListener('click', closeLightbox);
   $('lb-mask').addEventListener('click', closeLightbox);
   $('dlg-src').addEventListener('click', () => { if (!cropMode) openLightbox('src'); });
