@@ -81,13 +81,43 @@ button:hover { filter: brightness(1.05); }
   box-shadow: 0 4px 18px rgba(0,0,0,.2);
 }
 #previewbar button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
-#dlpanel {
-  position: fixed; right: 18px; bottom: 66px; z-index: 65;
-  display: flex; gap: 10px; align-items: center;
-  background: #fff; border: 1px solid #d6dbe4; border-radius: 12px; padding: 8px 10px;
-  box-shadow: 0 4px 18px rgba(0,0,0,.2); font-size: 12px;
+/* ── P010 导出弹窗 ──────────────────────────── */
+#dlmodal[hidden] { display: none; }
+#dlmodal .dlg-mask { position: fixed; inset: 0; z-index: 90; background: rgba(10, 14, 22, .45); }
+#dlmodal .dlg {
+  position: fixed; z-index: 91; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(880px, 94vw); max-height: 92vh; overflow: auto;
+  background: #fff; border: 1px solid #d6dbe4; border-radius: 14px;
+  box-shadow: 0 12px 44px rgba(0,0,0,.3); padding: 14px 18px 12px;
 }
-#dlpanel[hidden] { display: none; }
+#dlmodal .dlg-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+#dlmodal .dlg-head strong { font-size: 15px; }
+#dlg-close { border: none; background: transparent; font-size: 18px; padding: 0 8px; line-height: 1.4; opacity: .55; }
+#dlg-close:hover { opacity: 1; filter: none; }
+#dlmodal .dlg-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+#dlmodal .dlg-compare figure { margin: 0; min-width: 0; }
+#dlmodal .pane {
+  position: relative; height: min(44vh, 420px); border: 1px solid #d6dbe4; border-radius: 10px;
+  background: repeating-conic-gradient(#c8cdd6 0% 25%, #fff 0% 50%) 0 0 / 24px 24px;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+#dlmodal .pane img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+#dlmodal .pane-tip {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.72); font-size: 13px; text-align: center; padding: 0 18px;
+}
+#dlmodal figcaption { font-size: 12px; opacity: .75; margin-top: 5px; text-align: center; }
+#dlmodal .dlg-controls { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 4px; }
+#dlmodal .dlg-controls label { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+#dlmodal .dlg-controls label > :first-child { flex: none; }
+#dlmodal .dlg-controls label { white-space: nowrap; }
+#dlmodal .dlg-controls select { flex: 1; min-width: 0; padding: 4px 6px; border-radius: 6px; border: 1px solid #ccd2dd; background: #fff; color: inherit; font-size: 13px; }
+#dlmodal .dlg-controls input[type="range"] { flex: 1; min-width: 0; accent-color: #2f6fe4; }
+#dlmodal .dlg-val { flex: none; min-width: 96px; font-size: 12px; opacity: .8; text-align: right; font-variant-numeric: tabular-nums; }
+#dlmodal .dlg-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+#dlmodal .dlg-spacer { flex: 1; }
+#dlg-go { min-width: 200px; }
+#dlg-go:disabled { opacity: .55; cursor: not-allowed; }
 .open-state { margin: 90px auto; text-align: center; }
 .open-state p { margin-bottom: 14px; opacity: .75; }
 body.editing #previewbar { display: none !important; }
@@ -97,10 +127,14 @@ body.editing[data-tool="mosaic"] #stage { cursor: none; }
   /* 按钮暗色必须放在所有浅色基础规则之后(同优先级后者生效),否则白底白字 */
   button { background: #232833; border-color: #3a4150; color: #dde3ee; }
   button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
-  #editbar, #previewbar, #eb-pop, #dlpanel { background: #171a21; border-color: #3a4150; }
+  #editbar, #previewbar, #eb-pop, #dlmodal .dlg { background: #171a21; border-color: #3a4150; }
   #eb-textinput { background: rgba(23,26,33,.95); }
   #editbar button, #previewbar button, #eb-pop button { background: #232833; border-color: #3a4150; color: #dde3ee; }
   #editbar .primary, #editbar button.on, #previewbar button.primary, #eb-pop button.tier.on { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
   #eb-pop i.pcolor { border-color: rgba(255,255,255,.35); }
+  #dlmodal .dlg-controls select { background: #232833; border-color: #3a4150; }
+  #dlmodal .pane { border-color: #3a4150; background: repeating-conic-gradient(#2a3040 0% 25%, #171a21 0% 50%) 0 0 / 24px 24px; }
+  #dlmodal .pane-tip { background: rgba(23,26,33,.78); }
+  #dlg-close { background: transparent; color: #dde3ee; }
   .esep { background: #3a4150; }
 }

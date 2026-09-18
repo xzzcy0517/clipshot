@@ -258,7 +258,7 @@
     mk('eb-reset', '还原', '清除全部标注回到原图(可再撤销回来)', doReset);
     frag.appendChild(sep());
     mk('eb-copy', '复制', '复制当前呈现(含标注)到剪贴板', () => emit('copy'));
-    mk('eb-download', '下载', '下载当前呈现(含标注)', () => emit('download'));
+    mk('eb-download', '下载', '打开导出弹窗:转格式/压缩/缩放,看清效果再下载', () => emit('download'));
     const done = document.createElement('button');
     done.id = 'eb-done'; done.className = 'primary'; done.textContent = '✔ 完成';
     done.title = '结束编辑(Enter / Esc),标注保留,可再点「编辑」继续';
@@ -863,6 +863,7 @@
 
   /* ---------------- 键盘 ---------------- */
   function onKey(e) {
+    if (CS.Edit.modalOpen && CS.Edit.modalOpen()) return; // 导出弹窗打开时不响应编辑器快捷键
     if (textInput || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     const meta = e.ctrlKey || e.metaKey;
     if (mode === 'edit') {
@@ -902,6 +903,7 @@
   CS.Edit = {
     mount, targetOf, exportBlob, setMode, get mode() { return mode; },
     redraw: requestRedraw,
+    modalOpen: null, // preview.js 赋值为导出弹窗状态查询,打开时屏蔽编辑器快捷键
     setHasMain(v) {
       hasMain = !!v;
       const p = document.getElementById('previewbar');

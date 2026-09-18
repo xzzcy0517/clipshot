@@ -195,11 +195,11 @@
     });
     const dl = document.createElement('button');
     dl.textContent = '下载';
+    dl.title = '打开导出弹窗:转格式/压缩/缩放,看清效果再下载';
     dl.addEventListener('click', async () => {
       const img = item.querySelector('img');
       const edited = await Edit.exportBlob(img).catch(() => null);
-      const f = await finalize(edited || blob, edited ? asPng(dotName(filename, '-标注')) : filename);
-      downloadBlob(f.blob, f.name);
+      openExport(edited || blob, edited ? asPng(dotName(filename, '-标注')) : filename);
     });
     cap.appendChild(eb); cap.appendChild(cp); cap.appendChild(dl);
     const img = new Image();
@@ -274,41 +274,141 @@
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
-  /* -------- P009 下载选项:格式 / 质量 / 缩放(默认原始直出,零回归) -------- */
-  const dlOpts = { format: 'original', quality: 85, scale: 100 };
+  /* -------- P010 导出弹窗:左原图右效果,滑杆即调即看;主按钮标明格式与大小 -------- */
+  const dlOpts = { format: 'original', quality: 85, scale: 100 }; // 记住上次选择
+  let dlgCtx = null;   // {blob, name, dims, srcUrl, outUrl, out, outName, seq}
+  let dlgTimer = 0;
 
   function renameExt(name, mime) {
     const ext = mime === 'image/jpeg' ? '.jpg' : mime === 'image/webp' ? '.webp' : '.png';
     const i = name.lastIndexOf('.');
     return (i > 0 ? name.slice(0, i) : name) + ext;
   }
-  /** 按下载选项转码/缩放;不需要改动时原样返回(原 blob 直通) */
-  async function finalize(blob, name) {
-    const mime = dlOpts.format === 'original' ? (blob.type || 'image/png') : 'image/' + dlOpts.format;
-    if (dlOpts.scale === 100 && blob.type === mime) return { blob, name };
+  function fmtMime(mime) {
+    return mime === 'image/png' ? 'PNG' : mime === 'image/jpeg' ? 'JPEG' :
+      mime === 'image/webp' ? 'WebP' : String(mime || 'image/png').replace('image/', '').toUpperCase();
+  }
+  /** 按选项转码/缩放;不需要改动时原样直通;超画布上限/编码失败抛错 */
+  async function encode(blob, opts) {
+    const mime = opts.format === 'original' ? (blob.type || 'image/png') : 'image/' + opts.format;
     const bmp = await createImageBitmap(blob);
-    const w = Math.max(1, Math.round(bmp.width * dlOpts.scale / 100));
-    const h = Math.max(1, Math.round(bmp.height * dlOpts.scale / 100));
+    const w = Math.max(1, Math.round(bmp.width * opts.scale / 100));
+    const h = Math.max(1, Math.round(bmp.height * opts.scale / 100));
+    if (opts.scale === 100 && blob.type === mime) return { blob, mime, w: bmp.width, h: bmp.height };
+    if (w > 32767 || h > 32767) throw new Error('canvas-overflow');
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const cx = c.getContext('2d');
     if (mime === 'image/jpeg') { cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h); } // 透明底转 JPEG 垫白
     cx.drawImage(bmp, 0, 0, w, h);
-    const out = await new Promise((res) => c.toBlob(res, mime, mime === 'image/png' ? undefined : dlOpts.quality / 100));
-    return { blob: out || blob, name: renameExt(name, mime) };
+    const out = await new Promise((res) => c.toBlob(res, mime, mime === 'image/png' ? undefined : opts.quality / 100));
+    if (!out) throw new Error('toBlob failed');
+    return { blob: out, mime: out.type || mime, w, h }; // 不支持的 mime 会被浏览器降级,out.type 才是真实格式
   }
 
-  $('btn-dlopts').addEventListener('click', () => { $('dlpanel').hidden = !$('dlpanel').hidden; });
-  $('dl-format').addEventListener('change', () => {
-    dlOpts.format = $('dl-format').value;
-    $('dl-quality-row').style.visibility = (dlOpts.format === 'jpeg' || dlOpts.format === 'webp') ? 'visible' : 'hidden';
+  async function openExport(blob, name) {
+    if (!blob) return;
+    closeExport(); // 清掉上一次的状态与 object URL
+    const srcUrl = URL.createObjectURL(blob);
+    dlgCtx = { blob, name, dims: null, srcUrl, outUrl: null, out: null, outName: name, seq: 0 };
+    $('dlg-src').src = srcUrl;
+    $('dlg-src-info').textContent = fmtMime(blob.type) + ' · ' + fmtBytes(blob.size);
+    $('dl-format').value = dlOpts.format;
+    $('dl-quality').value = dlOpts.quality;
+    $('dl-scale').value = dlOpts.scale;
+    $('dlg-go').disabled = true;
+    $('dlg-summary').textContent = '';
+    syncCtlLabels();
+    $('dlmodal').hidden = false;
+    createImageBitmap(blob).then((b) => {
+      if (!dlgCtx || dlgCtx.blob !== blob) return;
+      dlgCtx.dims = { w: b.width, h: b.height };
+      $('dlg-src-info').textContent = b.width + ' × ' + b.height + ' px · ' + fmtMime(blob.type) + ' · ' + fmtBytes(blob.size);
+      syncCtlLabels();
+    }).catch(() => {});
+    schedulePreview(0);
+    setTimeout(() => $('dl-format').focus(), 0);
+  }
+  function closeExport() {
+    if (!dlgCtx) return;
+    clearTimeout(dlgTimer);
+    URL.revokeObjectURL(dlgCtx.srcUrl);
+    if (dlgCtx.outUrl) URL.revokeObjectURL(dlgCtx.outUrl);
+    dlgCtx = null;
+    $('dlmodal').hidden = true;
+    $('dlg-src').removeAttribute('src');
+    $('dlg-out').removeAttribute('src');
+  }
+  function schedulePreview(delay) {
+    clearTimeout(dlgTimer);
+    $('dlg-go').disabled = true;
+    dlgTimer = setTimeout(refreshPreview, delay == null ? 200 : delay);
+  }
+  /** 右栏实时预览:按当前选项重编码(防抖;seq 防旧请求覆盖新结果) */
+  async function refreshPreview() {
+    const ctx0 = dlgCtx; if (!ctx0) return;
+    const seq = ++ctx0.seq;
+    const tip = $('dlg-out-tip');
+    tip.textContent = '处理中…'; tip.hidden = false;
+    try {
+      const r = await encode(ctx0.blob, dlOpts);
+      if (!dlgCtx || dlgCtx.seq !== seq) return;
+      const url = URL.createObjectURL(r.blob);
+      if (ctx0.outUrl) URL.revokeObjectURL(ctx0.outUrl);
+      ctx0.outUrl = url; ctx0.out = r;
+      ctx0.outName = renameExt(ctx0.name, r.mime);
+      $('dlg-out').src = url;
+      tip.hidden = true;
+      $('dlg-out-info').textContent = r.w + ' × ' + r.h + ' px · ' + fmtMime(r.mime) + ' · ' + fmtBytes(r.blob.size);
+      $('dlg-go').disabled = false;
+      $('dlg-go').textContent = '下载 ' + fmtMime(r.mime) + ' · ' + fmtBytes(r.blob.size);
+      const srcSize = ctx0.blob.size, d = r.blob.size - srcSize;
+      $('dlg-summary').textContent = d === 0 ? '' :
+        '体积 ' + fmtBytes(srcSize) + ' → ' + fmtBytes(r.blob.size) +
+        (d < 0 ? '(减小 ' + Math.round(-d / srcSize * 100) + '%)' : '(增大 ' + Math.round(d / srcSize * 100) + '%)');
+    } catch (e) {
+      if (!dlgCtx || dlgCtx.seq !== seq) return;
+      tip.textContent = '该尺寸超出浏览器画布上限,无法转换;请降低缩放比例';
+      $('dlg-out-info').textContent = '';
+      $('dlg-summary').textContent = '';
+      $('dlg-go').disabled = true;
+    }
+  }
+  /** 控件回显:质量行仅 JPEG/WebP 显示;缩放滑杆带目标像素 */
+  function syncCtlLabels() {
+    $('dl-quality-row').style.display = (dlOpts.format === 'jpeg' || dlOpts.format === 'webp') ? 'flex' : 'none';
+    $('dl-quality-v').textContent = dlOpts.quality + '%';
+    let sv = dlOpts.scale + '%';
+    if (dlgCtx && dlgCtx.dims) {
+      sv += ' → ' + Math.max(1, Math.round(dlgCtx.dims.w * dlOpts.scale / 100)) + ' × ' +
+        Math.max(1, Math.round(dlgCtx.dims.h * dlOpts.scale / 100)) + ' px';
+    }
+    $('dl-scale-v').textContent = sv;
+  }
+
+  $('dl-format').addEventListener('change', () => { dlOpts.format = $('dl-format').value; syncCtlLabels(); schedulePreview(); });
+  $('dl-quality').addEventListener('input', () => { dlOpts.quality = +$('dl-quality').value; $('dl-quality-v').textContent = dlOpts.quality + '%'; schedulePreview(); });
+  $('dl-scale').addEventListener('input', () => { dlOpts.scale = +$('dl-scale').value; syncCtlLabels(); schedulePreview(); });
+  $('dlg-close').addEventListener('click', closeExport);
+  $('dlg-cancel').addEventListener('click', closeExport);
+  $('dlg-mask').addEventListener('click', closeExport);
+  $('dlg-go').addEventListener('click', () => {
+    const ctx0 = dlgCtx;
+    if (!ctx0 || !ctx0.out) return;
+    downloadBlob(ctx0.out.blob, ctx0.outName);
+    flash('已开始下载:' + ctx0.outName);
+    closeExport();
   });
-  $('dl-quality').addEventListener('input', () => {
-    dlOpts.quality = +$('dl-quality').value;
-    $('dl-quality-v').textContent = $('dl-quality').value;
+  // 弹窗内按键不外泄(E 进编辑 / Esc 退编辑等编辑器快捷键),Esc 关闭、Enter 确认
+  $('dlg').addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Escape') { e.preventDefault(); closeExport(); }
+    else if (e.key === 'Enter' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'BUTTON') {
+      e.preventDefault();
+      if (!$('dlg-go').disabled) $('dlg-go').click();
+    }
   });
-  $('dl-scale').addEventListener('change', () => { dlOpts.scale = +$('dl-scale').value; });
-  $('dl-quality-row').style.visibility = 'hidden';
+  Edit.modalOpen = () => !$('dlmodal').hidden;
 
   /** 当前呈现的 blob:有标注→全分辨率合成 PNG;无标注→原始 blob(零回归) */
   async function displayBlob() {
@@ -322,8 +422,7 @@
   async function doDownload() {
     const { blob, name } = await displayBlob();
     if (!blob) return;
-    const f = await finalize(blob, name);
-    downloadBlob(f.blob, f.name);
+    openExport(blob, name);
   }
   /** 复制到剪贴板(恒 PNG) */
   async function copyPng(blob) {

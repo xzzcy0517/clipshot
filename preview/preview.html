@@ -34,30 +34,52 @@
   <div id="previewbar">
     <button id="btn-edit" class="primary" title="像微信一样标注(快捷键 E)">✎ 编辑</button>
     <button id="btn-copy" title="复制当前呈现(含标注)到剪贴板">复制</button>
-    <button id="btn-download" title="下载当前呈现(含标注)">下载</button>
-    <button id="btn-dlopts" title="下载选项:格式/质量/缩放">▾</button>
+    <button id="btn-download" title="打开导出弹窗:转格式/压缩/缩放,看清效果再下载">下载</button>
   </div>
-  <!-- 下载选项面板(P009):格式/质量/缩放,即选即用 -->
-  <div id="dlpanel" hidden>
-    <label>格式
-      <select id="dl-format">
-        <option value="original">原始</option>
-        <option value="png">PNG</option>
-        <option value="jpeg">JPEG</option>
-        <option value="webp">WebP</option>
-      </select>
-    </label>
-    <label id="dl-quality-row">质量
-      <input id="dl-quality" type="range" min="60" max="100" value="85">
-      <span id="dl-quality-v">85</span>
-    </label>
-    <label>缩放
-      <select id="dl-scale">
-        <option value="100">100%</option>
-        <option value="75">75%</option>
-        <option value="50">50%</option>
-      </select>
-    </label>
+
+  <!-- 导出弹窗(P010):左原图右效果,滑杆即调即看;主按钮标明格式与大小 -->
+  <div id="dlmodal" hidden>
+    <div class="dlg-mask" id="dlg-mask"></div>
+    <div class="dlg" role="dialog" aria-modal="true" aria-label="导出图片" id="dlg">
+      <div class="dlg-head">
+        <strong>导出图片</strong>
+        <button id="dlg-close" title="关闭(Esc)">×</button>
+      </div>
+      <div class="dlg-compare">
+        <figure>
+          <div class="pane"><img id="dlg-src" alt="原图"></div>
+          <figcaption>原图 <span id="dlg-src-info"></span></figcaption>
+        </figure>
+        <figure>
+          <div class="pane"><img id="dlg-out" alt="导出效果"><span id="dlg-out-tip" class="pane-tip" hidden></span></div>
+          <figcaption>导出效果 <span id="dlg-out-info"></span></figcaption>
+        </figure>
+      </div>
+      <div class="dlg-controls">
+        <label>格式
+          <select id="dl-format">
+            <option value="original">原始(保持原格式)</option>
+            <option value="png">PNG(无损,体积大)</option>
+            <option value="jpeg">JPEG(体积小,不支持透明)</option>
+            <option value="webp">WebP(体积小,支持透明)</option>
+          </select>
+        </label>
+        <label id="dl-quality-row">压缩质量
+          <input id="dl-quality" type="range" min="10" max="100" step="1" value="85">
+          <span id="dl-quality-v" class="dlg-val">85%</span>
+        </label>
+        <label>缩放
+          <input id="dl-scale" type="range" min="10" max="100" step="5" value="100">
+          <span id="dl-scale-v" class="dlg-val">100%</span>
+        </label>
+      </div>
+      <div class="dlg-foot">
+        <span id="dlg-summary" class="info"></span>
+        <span class="dlg-spacer"></span>
+        <button id="dlg-cancel">取消</button>
+        <button id="dlg-go" class="primary">下载</button>
+      </div>
+    </div>
   </div>
 
   <canvas id="editlayer"></canvas>
