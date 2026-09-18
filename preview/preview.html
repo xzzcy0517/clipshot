@@ -34,7 +34,7 @@
   <div id="previewbar">
     <button id="btn-edit" class="primary" title="像微信一样标注(快捷键 E)">✎ 编辑</button>
     <button id="btn-copy" title="复制当前呈现(含标注)到剪贴板">复制</button>
-    <button id="btn-download" title="打开导出弹窗:转格式/压缩/缩放,看清效果再下载">下载</button>
+    <button id="btn-download" title="打开导出弹窗:剪裁/转格式/压缩/缩放,看清效果再下载">下载</button>
   </div>
 
   <!-- 导出弹窗(P010):左原图右效果,滑杆即调即看;主按钮标明格式与大小 -->
@@ -47,11 +47,21 @@
       </div>
       <div class="dlg-compare">
         <figure>
-          <div class="pane"><img id="dlg-src" alt="原图"></div>
-          <figcaption>原图 <span id="dlg-src-info"></span></figcaption>
+          <div class="pane" id="dlg-pane-src">
+            <img id="dlg-src" alt="原图" title="点击放大查看">
+            <span class="pane-hint" id="dlg-crop-hint" hidden>在图上拖拽框选保留区域,松手即生效</span>
+            <div class="crop-box" id="dlg-cropbox" hidden><span class="crop-size" id="dlg-cropbox-size"></span></div>
+          </div>
+          <figcaption>
+            <span>原图 <span id="dlg-src-info"></span></span>
+            <span class="cap-btns">
+              <button id="dlg-crop" class="mini" title="框选保留区域,导出只保留框内内容">✂ 剪裁</button>
+              <button id="dlg-crop-clear" class="mini" hidden title="取消剪裁,恢复整张图">清除剪裁</button>
+            </span>
+          </figcaption>
         </figure>
         <figure>
-          <div class="pane"><img id="dlg-out" alt="导出效果"><span id="dlg-out-tip" class="pane-tip" hidden></span></div>
+          <div class="pane"><img id="dlg-out" alt="导出效果" title="点击放大查看"><span id="dlg-out-tip" class="pane-tip" hidden></span></div>
           <figcaption>导出效果 <span id="dlg-out-info"></span></figcaption>
         </figure>
       </div>
@@ -79,6 +89,23 @@
         <button id="dlg-cancel">取消</button>
         <button id="dlg-go" class="primary">下载</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 放大查看灯箱(P011):原图/导出图同位切换,点击图切换 适应窗口/100% -->
+  <div id="lightbox" hidden>
+    <div class="lb-mask" id="lb-mask"></div>
+    <div class="lb-wrap" id="lb-wrap">
+      <div class="lb-bar">
+        <span id="lb-title">原图</span>
+        <button id="lb-src" class="on">原图</button>
+        <button id="lb-out">导出图</button>
+        <button id="lb-zoom">100% 原大</button>
+        <span class="info">←/→ 切换 · 点图缩放 · Esc 关闭</span>
+        <span class="dlg-spacer" style="flex:1"></span>
+        <button id="lb-close" title="关闭(Esc)">×</button>
+      </div>
+      <div id="lb-view"><img id="lb-img" class="fit" alt="放大查看"></div>
     </div>
   </div>
 

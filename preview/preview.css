@@ -106,6 +106,7 @@ button:hover { filter: brightness(1.05); }
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   background: rgba(255,255,255,.72); font-size: 13px; text-align: center; padding: 0 18px;
 }
+#dlmodal .pane-tip[hidden] { display: none; } /* hidden 属性优先级低于 display:flex,必须显式压回 */
 #dlmodal figcaption { font-size: 12px; opacity: .75; margin-top: 5px; text-align: center; }
 #dlmodal .dlg-controls { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 4px; }
 #dlmodal .dlg-controls label { display: flex; align-items: center; gap: 10px; font-size: 13px; }
@@ -118,6 +119,47 @@ button:hover { filter: brightness(1.05); }
 #dlmodal .dlg-spacer { flex: 1; }
 #dlg-go { min-width: 200px; }
 #dlg-go:disabled { opacity: .55; cursor: not-allowed; }
+#dlmodal .pane img { cursor: zoom-in; }
+#dlmodal .pane.cropping img { cursor: crosshair; }
+#dlmodal figcaption { display: flex; align-items: center; justify-content: center; gap: 8px; }
+#dlmodal figcaption .cap-btns { display: inline-flex; gap: 6px; }
+#dlmodal button.mini { padding: 1px 8px; font-size: 12px; border-radius: 6px; }
+#dlmodal button.mini.on { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+.pane-hint {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 3;
+  background: rgba(20,26,38,.82); color: #fff; font-size: 12px; padding: 3px 10px;
+  border-radius: 999px; pointer-events: none; white-space: nowrap;
+}
+.pane-hint[hidden] { display: none; }
+.crop-box {
+  position: absolute; z-index: 2; border: 1.5px solid #2f6fe4; border-radius: 2px;
+  box-shadow: 0 0 0 9999px rgba(10,14,22,.45); cursor: move; pointer-events: auto;
+}
+.crop-box[hidden] { display: none; }
+.crop-box .crop-size {
+  position: absolute; left: 50%; bottom: -24px; transform: translateX(-50%);
+  background: #2f6fe4; color: #fff; font-size: 11px; padding: 1px 7px; border-radius: 4px;
+  white-space: nowrap; pointer-events: none;
+}
+
+/* ── 放大查看(P011 灯箱) ───────────────────── */
+#lightbox[hidden] { display: none; }
+#lightbox .lb-mask { position: fixed; inset: 0; z-index: 95; background: rgba(8, 11, 18, .78); }
+#lightbox .lb-wrap { position: fixed; inset: 0; z-index: 96; display: flex; flex-direction: column; }
+#lightbox .lb-bar {
+  display: flex; align-items: center; gap: 8px; padding: 10px 16px; color: #fff; flex: none;
+}
+#lightbox .lb-bar #lb-title { font-size: 14px; font-weight: 600; }
+#lightbox .lb-bar button { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.25); color: #fff; }
+#lightbox .lb-bar button.on { background: #2f6fe4; border-color: #2f6fe4; }
+#lightbox .lb-bar button:disabled { opacity: .4; cursor: not-allowed; }
+#lightbox .lb-bar .info { color: rgba(255,255,255,.65); }
+#lb-view {
+  flex: 1; overflow: auto; display: flex; padding: 0 16px 16px;
+}
+#lb-view img { margin: auto; display: block; box-shadow: 0 2px 18px rgba(0,0,0,.5); cursor: zoom-in; }
+#lb-view img.fit { max-width: 100%; max-height: 100%; object-fit: contain; }
+#lb-view img:not(.fit) { cursor: zoom-out; margin: 0 auto; } /* 原大超屏时顶对齐起滚,避免 flex 居中裁掉顶部 */
 .open-state { margin: 90px auto; text-align: center; }
 .open-state p { margin-bottom: 14px; opacity: .75; }
 body.editing #previewbar { display: none !important; }
