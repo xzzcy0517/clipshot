@@ -33,10 +33,18 @@ button:hover { filter: brightness(1.05); }
   display: block; max-width: none; background: repeating-conic-gradient(#c8cdd6 0% 25%, #fff 0% 50%) 0 0 / 24px 24px;
   box-shadow: 0 1px 6px rgba(0,0,0,.18);
 }
-.seg-list { display: flex; flex-direction: column; gap: 12px; }
-.seg-item img { max-width: 100%; box-shadow: 0 1px 6px rgba(0,0,0,.18); cursor: pointer; }
-.seg-item img.sel { outline: 2px solid #2f6fe4; outline-offset: 1px; }
-.seg-item .cap { font-size: 12px; opacity: .7; margin-bottom: 4px; }
+/* ── P013 画板:卡片绝对定位自由拖动,宽高只随缩放比走(永不变形) ── */
+#wrap { position: relative; }
+.board-card { position: absolute; left: 0; top: 0; cursor: grab; touch-action: none; }
+.board-card:active { cursor: grabbing; }
+body.editing .board-card { cursor: crosshair; }
+.board-card .cap {
+  position: absolute; top: 0; left: 0; z-index: 1; max-width: 100%;
+  font-size: 11px; padding: 0 6px; border-radius: 0 0 6px 0;
+  background: rgba(255,255,255,.88); color: #333; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+}
+.board-card img.sel { outline: 2px solid #2f6fe4; outline-offset: 1px; }
 
 /* ── P007 编辑器 ───────────────────────────────── */
 #editlayer { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
@@ -200,6 +208,7 @@ body.editing[data-tool="mosaic"] #stage { cursor: none; }
   #dlmodal .dlg-controls select { background: #232833; border-color: #3a4150; }
   #dlmodal .pane { border-color: #3a4150; background: repeating-conic-gradient(#2a3040 0% 25%, #171a21 0% 50%) 0 0 / 24px 24px; }
   #dlmodal .pane-tip { background: rgba(23,26,33,.78); }
+  .board-card .cap { background: rgba(23,26,33,.88); color: #dde3ee; }
   #dlg-close { background: transparent; color: #dde3ee; }
   .esep { background: #3a4150; }
 }

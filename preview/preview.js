@@ -17,6 +17,10 @@
   let activeImg = null;     // P012:当前选中图,缩放/复制/下载都作用于它
   const scales = new Map(); // img → 缩放比(1 = 设备像素 / dpr 的 CSS 尺寸)
   const blobOf = new Map(); // img → 原始 blob(主图与列表项)
+  /* P013 画板:卡片自由拖动,多卡片时导出按布局合成 */
+  const cards = [];         // {el, img, x, y},顺序 = 构建顺序(自动堆叠按此序)
+  let boardTouched = false; // 用户拖过卡片即不再自动堆叠
+  let boardDrag = null;
 
   function fail(text) {
     $('info').textContent = '';
@@ -87,10 +91,8 @@
     $('wrap').appendChild(box);
   }
 
-  /** P009 多图上传:逐张拉取,列表展示,每张独立编辑/复制/下载 */
+  /** P009 多图上传:逐张拉取进画板(P013),自动堆叠,可拖动摆位,下载按布局合成 */
   async function initItems(m) {
-    const list = document.createElement('div');
-    list.className = 'seg-list';
     for (let i = 0; i < m.items.length; i++) {
       const it = m.items[i];
       let b64 = '';
@@ -101,33 +103,26 @@
         $('info').textContent = `接收图片 ${i + 1}/${m.items.length} ${Math.round((c + 1) / it.chunkCount * 100)}%`;
       }
       const blob = new Blob([CS.util.b64Decode(b64)], { type: it.mime });
-      list.appendChild(buildSegItem(it.name + ' ', blob, it.name));
+      $('wrap').appendChild(buildCard(it.name, blob, it.name).el);
       (it.notes || []).forEach(addNote);
     }
     send({ type: CS.MSG.IMG_DONE, jobId }).catch(() => {});
-    $('wrap').appendChild(list);
     Edit.setHasMain(true);
-    $('info').textContent = '共 ' + m.items.length + ' 张图片,点击选中后用右下角面板操作';
-    if (m.items.length > 1) toast('共 ' + m.items.length + ' 张图片,点选一张即可编辑/复制/下载');
+    $('info').textContent = '共 ' + m.items.length + ' 张图片,画板可拖动摆位,下载按布局导出';
+    toast('画板模式:拖动图片摆位置,下载按布局导出');
     // 文件名兜底(选中后由 selectImg 逐张刷新信息行)
     meta = { name: m.items[0].name, mime: m.items[0].mime, notes: [], widthPx: m.items[0].widthPx, heightPx: m.items[0].heightPx };
   }
 
   function showBlob(blob) {
     currentBlob = blob;
-    const url = URL.createObjectURL(blob);
-    imgEl = new Image();
-    imgEl.src = url;
-    imgEl.onload = () => {
-      naturalW = imgEl.naturalWidth; naturalH = imgEl.naturalHeight;
-      blobOf.set(imgEl, blob);
+    const card = buildCard('', blob, meta.name, (img) => {
+      naturalW = img.naturalWidth; naturalH = img.naturalHeight;
       renderInfo();
-      Edit.mount(imgEl, blob, meta.name);
-      scales.set(imgEl, fitScaleOf(imgEl));
-      selectImg(imgEl);
       Edit.setHasMain(true);
-    };
-    $('wrap').appendChild(imgEl);
+    });
+    imgEl = card.img;
+    $('wrap').appendChild(card.el);
   }
 
   /** P012:选中一张图(单图恒为唯一选中),右下面板的缩放/复制/下载作用于它 */
@@ -135,8 +130,8 @@
     if (!img) return;
     activeImg = img;
     if (Edit.setActive) Edit.setActive(img);
-    document.querySelectorAll('.seg-item img.sel').forEach((x) => x.classList.remove('sel'));
-    if (img.closest('.seg-item')) img.classList.add('sel');
+    document.querySelectorAll('.board-card img.sel').forEach((x) => x.classList.remove('sel'));
+    if (img.closest('.board-card')) img.classList.add('sel');
     const t = Edit.targetOf(img);
     const blob = blobOf.get(img);
     const bits = [];
@@ -173,54 +168,129 @@
         return;
       }
       $('info').textContent = `整页过长,已分 ${vols.length} 卷展示(每卷一张长图)`;
-      const list = document.createElement('div');
-      list.className = 'seg-list';
       for (let vi = 0; vi < vols.length; vi++) {
         const v = vols[vi];
         const blob = await compose(v.from, v.count);
         if (vi === 0) currentBlob = blob;
-        const item = buildSegItem(`第 ${vi + 1} / ${vols.length} 卷(${v.count} 段,${v.height} px)`,
-          blob, dotName(meta.name, `-vol${vi + 1}`));
-        list.appendChild(item);
+        $('wrap').appendChild(buildCard(`第 ${vi + 1} / ${vols.length} 卷(${v.count} 段,${v.height} px)`,
+          blob, dotName(meta.name, `-vol${vi + 1}`)).el);
       }
-      $('wrap').appendChild(list);
       Edit.setHasMain(true);
-      addNote('整图超出浏览器画布上限,已分 ' + vols.length + ' 卷;点选一卷,右下角面板即可编辑/复制/下载,按卷序排列即整页');
+      addNote('整图超出浏览器画布上限,已分 ' + vols.length + ' 卷;画板中按卷序堆叠,可拖动摆位,下载按布局合成');
     } catch (e) {
       // 回退:分段展示 + 逐段下载
       $('info').textContent = '图片超出画布上限,按分段展示';
-      const list = document.createElement('div');
-      list.className = 'seg-list';
       blobs.forEach((blob, i) => {
-        list.appendChild(buildSegItem(`第 ${i + 1} / ${blobs.length} 段`, blob, dotName(meta.name, '-' + (i + 1))));
+        $('wrap').appendChild(buildCard(`第 ${i + 1} / ${blobs.length} 段`, blob, dotName(meta.name, '-' + (i + 1))).el);
       });
-      $('wrap').appendChild(list);
       Edit.setHasMain(true);
       currentBlob = blobs[0];
-      addNote('整图超出浏览器画布限制,已按分段展示;点选一段,右下角面板即可编辑/复制/下载');
+      addNote('整图超出浏览器画布限制,已按分段展示;画板中可拖动摆位,下载按布局合成');
     }
   }
 
-  /** 分卷/分段/上传条目:说明行 + 图(P012 起条目不再自带按钮,点图选中,右下面板统一操作) */
-  function buildSegItem(label, blob, filename) {
-    const item = document.createElement('div');
-    item.className = 'seg-item';
+  /* ---------------- P013 画板:卡片自由拖动,多卡片导出按布局合成 ---------------- */
+  function cardDispSize(card) {
+    const dpr = window.devicePixelRatio || 1;
+    const s = scales.get(card.img) || 1;
+    return { w: card.img.naturalWidth / dpr * s, h: card.img.naturalHeight / dpr * s };
+  }
+  /** 未手动拖过:按构建顺序纵向堆叠(分卷/多图天然成序) */
+  function autoStack() {
+    let y = 0;
+    for (const c of cards) {
+      if (!c.img.naturalWidth) continue;
+      c.x = 0; c.y = y;
+      c.el.style.left = '0px';
+      c.el.style.top = y + 'px';
+      y += cardDispSize(c).h + 24;
+    }
+  }
+  /** 卡片 bbox(画板 CSS px):容器尺寸与画板合成共用这套数学 */
+  function boardBBox() {
+    let w = 0, h = 0;
+    for (const c of cards) {
+      if (!c.img.naturalWidth) continue;
+      const d = cardDispSize(c);
+      w = Math.max(w, c.x + d.w);
+      h = Math.max(h, c.y + d.h);
+    }
+    return { w, h };
+  }
+  function relayout() {
+    const bb = boardBBox();
+    $('wrap').style.width = Math.ceil(bb.w) + 'px';
+    $('wrap').style.height = Math.ceil(bb.h) + 'px';
+  }
+  /** 画板卡片:cap 悬浮标签 + 图;预览态拖动摆位置(编辑态拖动=画标注,不抢) */
+  function buildCard(label, blob, filename, onready) {
+    const el = document.createElement('div');
+    el.className = 'board-card';
     const cap = document.createElement('div');
     cap.className = 'cap';
     cap.textContent = label;
+    if (!label) cap.style.display = 'none';
     const img = new Image();
-    img.title = '点击选中,用右下角面板编辑/复制/下载';
+    img.draggable = false;
+    img.title = '拖动摆位置;右下角缩放;下载按画板布局导出';
     img.src = URL.createObjectURL(blob);
+    const card = { el, img, x: 0, y: 0 };
     img.onload = () => {
       blobOf.set(img, blob);
       Edit.mount(img, blob, filename);
-      scales.set(img, Math.min(1, fitScaleOf(img))); // 初始适应容器,小图不放大
+      // 单卡片:s 为纯视图(初始适应,与旧版观感一致);多卡片:s 为布局量,初始自然尺寸
+      scales.set(img, cards.length === 1 ? fitScaleOf(img) : 1);
       applyImg(img);
+      if (!boardTouched) autoStack();
+      relayout();
+      if (onready) onready(img);
       if (!activeImg) selectImg(img);
     };
-    img.addEventListener('click', () => { if (Edit.mode !== 'edit') selectImg(img); });
-    item.appendChild(cap); item.appendChild(img);
-    return item;
+    el.addEventListener('pointerdown', (e) => {
+      if (Edit.mode === 'edit' || e.button !== 0) return;
+      selectImg(img);
+      boardDrag = { card, sx: e.clientX, sy: e.clientY, x: card.x, y: card.y };
+      el.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!boardDrag || boardDrag.card !== card) return;
+      boardTouched = true;
+      card.x = Math.max(0, boardDrag.x + e.clientX - boardDrag.sx);
+      card.y = Math.max(0, boardDrag.y + e.clientY - boardDrag.sy);
+      el.style.left = card.x + 'px';
+      el.style.top = card.y + 'px';
+      relayout();
+      Edit.redraw();
+    });
+    el.addEventListener('pointerup', () => { boardDrag = null; });
+    el.appendChild(cap); el.appendChild(img);
+    cards.push(card);
+    return card;
+  }
+  /** 画板合成:按卡片位置与缩放拼出最终 PNG;单卡片不走这里(原图直通零回归) */
+  async function composeBoard() {
+    const dpr = window.devicePixelRatio || 1;
+    const bb = boardBBox();
+    const W = Math.round(bb.w * dpr), H = Math.round(bb.h * dpr);
+    if (!(W > 0 && H > 0)) throw new Error('empty-board');
+    if (W > 32767 || H > 32767) throw new Error('canvas-overflow');
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const cx = c.getContext('2d');
+    for (const card of cards) {
+      if (!card.img.naturalWidth) continue;
+      let src = blobOf.get(card.img);
+      try { const edited = await Edit.exportBlob(card.img); if (edited) src = edited; } catch (e) { /* 标注合成失败用原图 */ }
+      if (!src) continue;
+      const bmp = await createImageBitmap(src);
+      const s = scales.get(card.img) || 1;
+      cx.drawImage(bmp, Math.round(card.x * dpr), Math.round(card.y * dpr),
+        Math.round(bmp.width * s), Math.round(bmp.height * s));
+    }
+    const out = await new Promise((res) => c.toBlob(res, 'image/png'));
+    if (!out) throw new Error('toBlob failed');
+    return out;
   }
 
   function dotName(name, suffix) {
@@ -279,6 +349,8 @@
     scales.set(img, s);
     if (img === activeImg) applyScale();
     else { applyImg(img); Edit.redraw(); }
+    if (!boardTouched) autoStack(); // 缩放改了卡片尺寸,未手动布局时顺势重堆叠
+    relayout();
   }
   $('zoom-in').addEventListener('click', () => setScale(activeImg, Math.min(4, curScale() * 1.25)));
   $('zoom-out').addEventListener('click', () => setScale(activeImg, Math.max(0.05, curScale() / 1.25)));
@@ -649,8 +721,12 @@
   $('dlg-src').addEventListener('click', () => { if (!cropMode) openLightbox('src'); });
   $('dlg-out').addEventListener('click', () => { if (dlgCtx && dlgCtx.outUrl) openLightbox('out'); });
 
-  /** 指定图的当前呈现:有标注→全分辨率合成 PNG;无标注→原始 blob(零回归) */
+  /** 指定图的当前呈现:多卡片→画板合成;单卡片有标注→全分辨率合成 PNG,无标注→原始 blob(零回归) */
   async function displayBlobFor(img) {
+    if (cards.length > 1) {
+      const blob = await composeBoard();
+      return { blob, name: (meta && meta.name) || 'board.png' };
+    }
     const t = img && Edit.targetOf(img);
     const name = (t && t.name) || (meta && meta.name) || 'image.png';
     if (t) {
@@ -663,9 +739,13 @@
   }
 
   async function doDownload() {
-    const { blob, name } = await displayBlobFor(activeImg);
-    if (!blob) return;
-    openExport(blob, name);
+    try {
+      const { blob, name } = await displayBlobFor(activeImg);
+      if (!blob) return;
+      openExport(blob, name);
+    } catch (e) {
+      toast('画板超出浏览器画布上限,请用右下角 － 缩小图片后再导出', 'err');
+    }
   }
   /** 复制到剪贴板(恒 PNG) */
   async function copyPng(blob) {
@@ -685,8 +765,12 @@
     }
   }
   async function doCopy() {
-    const { blob } = await displayBlobFor(activeImg);
-    if (blob) copyPng(blob);
+    try {
+      const { blob } = await displayBlobFor(activeImg);
+      if (blob) copyPng(blob);
+    } catch (e) {
+      toast('画板超出浏览器画布上限,请缩小后再复制', 'err');
+    }
   }
 
   $('btn-download').addEventListener('click', doDownload);
