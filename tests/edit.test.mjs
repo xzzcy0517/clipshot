@@ -126,4 +126,61 @@ st3.stack.push({ t: 'del', item: d2, index: 1 }); st3.anns.splice(1, 1);
 st3.undo(); assert.deepEqual(st3.anns, [d1, d2, d3], 'del 撤销按原位恢复');
 st3.redo(); assert.deepEqual(st3.anns, [d1, d3]);
 
-console.log('✔ edit.test.mjs(坐标/几何/栈/选中交互)');
+/* ---------- P014 形状库纯数据 ---------- */
+assert.ok(Array.isArray(P.SHAPES) && P.SHAPES.length >= 26, '形状库条目不足');
+const ids = new Set();
+for (const s of P.SHAPES) {
+  assert.ok(s.id && s.label && s.cat, '形状缺 id/label/cat: ' + JSON.stringify(s));
+  assert.ok(!ids.has(s.id), '形状 id 重复: ' + s.id);
+  ids.add(s.id);
+}
+for (const sid of ['line', 'arrow', 'darrow', 'elbow']) {
+  assert.ok(P.SHAPES.find((s) => s.id === sid && s.line === true), sid + ' 应为线条类');
+}
+assert.ok(P.SHAPES.find((s) => s.id === 'cylinder' && s.fillable), '数据库圆柱应在库中且可填充');
+
+/* ---------- P014 肘形连接 ---------- */
+const elb = P.elbowPts(0, 0, 100, 50);
+assert.equal(elb.length, 4);
+assert.equal(elb[1].x, 50); assert.equal(elb[1].y, 0);
+assert.equal(elb[2].x, 50); assert.equal(elb[2].y, 50);
+
+/* ---------- P014 形状命中:bbox 类整体可命中,线条类按笔带 ---------- */
+const shBox = { tool: 'shape', shape: 'diamond', x: 0, y: 0, bw: 100, bh: 60, w: 2 };
+assert.equal(P.hitAnn(shBox, 50, 30, 4), 'body', '形状内部应命中(整体物件)');
+assert.equal(P.hitAnn(shBox, 120, 30, 4), null);
+const shLine = { tool: 'shape', shape: 'line', x0: 0, y0: 0, x1: 100, y1: 0, w: 2 };
+assert.equal(P.hitAnn(shLine, 50, 3, 4), 'body');
+assert.equal(P.hitAnn(shLine, 50, 20, 4), null);
+const shElb = { tool: 'shape', shape: 'elbow', x0: 0, y0: 0, x1: 100, y1: 50, w: 2 };
+assert.equal(P.hitAnn(shElb, 50, 25, 3), 'body', '肘形竖段应命中');
+assert.equal(P.hitAnn(shElb, 10, 40, 3), null, '肘形空白角不该命中');
+
+/* ---------- P014 形状把手/快照 ---------- */
+assert.equal(P.handlePoints(shBox).length, 8, 'bbox 形状 8 把手');
+assert.deepEqual(P.handlePoints(shLine).map((p) => p.dir), ['p0', 'p1'], '线条形状 2 端点');
+const snapShape = P.snap({ tool: 'shape', shape: 'star', fill: 'alpha', x: 1, y: 2, bw: 30, bh: 40, w: 3, color: '#000' });
+assert.equal(snapShape.shape, 'star');
+assert.equal(snapShape.fill, 'alpha');
+
+/* ---------- P014 annBBox:导出/容器尺寸共用 ---------- */
+const bbRect = P.annBBox({ tool: 'rect', x: 10, y: 20, bw: 100, bh: 50, w: 2 });
+assert.deepEqual(bbRect, { x: 8, y: 18, w: 104, h: 54 });
+const bbArr = P.annBBox({ tool: 'arrow', x0: 0, y0: 0, x1: 100, y1: 0, w: 3 });
+assert.ok(bbArr.x < 0 && bbArr.y < 0 && bbArr.w > 100, '箭头包围盒含头部余量');
+const bbTxt = P.annBBox({ tool: 'text', x: 5, y: 6, text: 'ab', fs: 20, _mw: 40, _mh: 28 });
+assert.deepEqual(bbTxt, { x: 5, y: 6, w: 40, h: 28 });
+
+/* ---------- P014 Store:操作带全局递增 seq,del 方法可逆 ---------- */
+const stA = new CS.Store(), stB = new CS.Store();
+const oa = { tool: 'rect', x: 0, y: 0, bw: 1, bh: 1, w: 2 }, ob = { tool: 'pen', pts: [{ x: 0, y: 0 }], w: 2 };
+stA.add(oa); stB.add(ob);
+const seqA = stA.stack[0].seq, seqB = stB.stack[0].seq;
+assert.ok(seqA && seqB && seqB > seqA, 'seq 应全局递增(跨栈)');
+assert.ok(stB.del(ob));
+assert.equal(stB.anns.length, 0);
+assert.ok(stB.stack[stB.stack.length - 1].seq > seqB, 'del 也带 seq');
+stB.undo();
+assert.deepEqual(stB.anns, [ob], 'del 撤销按原位恢复');
+
+console.log('✔ edit.test.mjs(坐标/几何/栈/选中交互/形状库/画板层)');

@@ -71,6 +71,17 @@ body.editing .board-card { cursor: crosshair; }
 #eb-pop i.pcolor { width: 16px; height: 16px; border-radius: 50%; cursor: pointer; border: 1px solid rgba(0,0,0,.22); display: inline-block; }
 #eb-pop i.pcolor.on { outline: 2px solid #2f6fe4; outline-offset: 1px; }
 #eb-pop .phint { font-size: 12px; opacity: .65; }
+#eb-pop .fillbtn { padding: 3px 10px; font-size: 12px; white-space: nowrap; }
+#eb-pop .fillbtn:disabled { opacity: .45; cursor: not-allowed; }
+/* P014 形状选择器:分类网格,图标即形状画法实时渲染 */
+#eb-pop.shapes { max-width: min(400px, 94vw); max-height: 62vh; overflow: auto; flex-wrap: wrap; }
+#eb-pop .eb-shwrap { width: 100%; }
+#eb-pop .eb-shlab { font-size: 11px; opacity: .6; margin: 6px 0 3px; }
+#eb-pop .eb-shlab:first-child { margin-top: 0; }
+#eb-pop .eb-shgrid { display: grid; grid-template-columns: repeat(8, 30px); gap: 4px; }
+#eb-pop .shp { padding: 2px; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; }
+#eb-pop .shp.on { background: #2f6fe4; border-color: #2f6fe4; }
+#eb-pop .shp.on canvas { filter: invert(1); } /* 选中态反白,深浅色通用 */
 #eb-textinput {
   position: fixed; z-index: 80; outline: none; padding: 2px 6px; min-width: 80px;
   background: rgba(255,255,255,.92); border: 1.5px solid #2f6fe4; border-radius: 6px;
@@ -85,9 +96,41 @@ body.editing .board-card { cursor: crosshair; }
   box-shadow: 0 4px 18px rgba(0,0,0,.2); max-width: min(430px, 92vw);
 }
 #previewbar .pb-row { display: flex; gap: 8px; align-items: center; }
+#previewbar .pb-row.pb-zoom { flex-wrap: nowrap; width: 100%; }
 #previewbar .pb-info { font-size: 12px; opacity: .75; text-align: right; word-break: break-all; }
-#previewbar.no-main .pb-row { display: none; }
+#previewbar.no-main .pb-main { display: none; } /* 无主图时只留信息行 + 画板操作行 */
 #previewbar button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+#zoom-range { flex: 1; min-width: 64px; accent-color: #2f6fe4; margin: 0 2px; }
+.zoom-num { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; opacity: .9; }
+#zoom-num {
+  width: 52px; padding: 3px 4px; border-radius: 6px; border: 1px solid #ccd2dd;
+  font-size: 12px; text-align: right; background: #fff; color: inherit;
+}
+.pb-board button { font-size: 12px; padding: 4px 9px; }
+/* 画板背景选择弹层(P014) */
+#bgpop {
+  position: fixed; z-index: 100; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  max-width: 240px; background: #fff; border: 1px solid #d6dbe4; border-radius: 10px;
+  padding: 8px 10px; box-shadow: 0 4px 14px rgba(0,0,0,.2);
+}
+#bgpop[hidden] { display: none; }
+#bgpop .bgsw {
+  width: 24px; height: 24px; border-radius: 6px; border: 1px solid rgba(0,0,0,.25);
+  padding: 0; cursor: pointer; flex: none;
+}
+#bgpop .bgsw.checker { background: repeating-conic-gradient(#c8cdd6 0% 25%, #fff 0% 50%) 0 0 / 10px 10px; }
+#bgpop .bgsw.on { outline: 2px solid #2f6fe4; outline-offset: 1px; }
+#bgpop .bg-custom { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; opacity: .9; }
+#bg-custom { width: 40px; height: 24px; padding: 0; border: 1px solid #ccd2dd; border-radius: 6px; background: none; cursor: pointer; }
+/* 卡片移除按钮:悬停/选中时出现 */
+.board-card .bx {
+  position: absolute; top: -10px; right: -10px; z-index: 2; width: 22px; height: 22px;
+  padding: 0; border-radius: 50%; border: 1px solid #d6dbe4; background: #fff; color: #888;
+  font-size: 14px; line-height: 1; display: none; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+}
+.board-card:hover .bx, .board-card:has(img.sel) .bx { display: block; }
+.board-card .bx:hover { color: #b3312d; border-color: #b3312d; }
+body.editing .board-card .bx { display: none !important; }
 /* 操作提示 toast(P012):底部居中滑入,自动消失 */
 #toasts {
   position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 120;
@@ -211,4 +254,11 @@ body.editing[data-tool="mosaic"] #stage { cursor: none; }
   .board-card .cap { background: rgba(23,26,33,.88); color: #dde3ee; }
   #dlg-close { background: transparent; color: #dde3ee; }
   .esep { background: #3a4150; }
+  #zoom-num { background: #232833; border-color: #3a4150; }
+  #bgpop { background: #171a21; border-color: #3a4150; }
+  #bg-custom { border-color: #3a4150; }
+  .board-card .bx { background: #232833; border-color: #3a4150; color: #aab2c5; }
+  .board-card .bx:hover { color: #ff7b72; border-color: #ff7b72; }
+  #eb-pop .shp { background: #232833; border-color: #3a4150; }
+  #eb-pop .fillbtn { background: #232833; border-color: #3a4150; color: #dde3ee; }
 }

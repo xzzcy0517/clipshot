@@ -3,6 +3,8 @@
  * 预览页:meta → chunk 分块拉取 SW 暂存截图;多段按解码高度堆叠/分卷;
  * 缩放/下载/复制 + P007 微信式编辑(双状态:默认预览态,点「编辑」才出工具栏)。
  * 编辑逻辑在 edit.js;导出所见即所得,无标注时与旧版行为逐字节一致。
+ * P014 画板教学化:滑杆/数字无级缩放;＋图片/Ctrl+V 粘贴续传;卡片可移除;
+ * 画板背景(透明/常用色/自定义);新建空白画布;画板标注层(空白处可画)随导出合成。
  */
 (function () {
   const CS = globalThis.ClipShot;
@@ -21,6 +23,12 @@
   const cards = [];         // {el, img, x, y},顺序 = 构建顺序(自动堆叠按此序)
   let boardTouched = false; // 用户拖过卡片即不再自动堆叠
   let boardDrag = null;
+  let openStateEl = null;   // P009 空态框(有内容后即移除)
+  let cardSeq = 0;          // 粘贴/添加图片的命名序号
+  let wrapW = 0, wrapH = 0; // relayout 记忆,不变则不重排(防 _boardChange 回环)
+  /* P014 画板背景:transparent 或任意颜色;localStorage 记忆,导出合成时垫底色 */
+  let boardBg = 'transparent';
+  try { boardBg = localStorage.getItem('cs.boardBg') || 'transparent'; } catch (e) { /* 无存储权限时用默认 */ }
 
   function fail(text) {
     $('info').textContent = '';
@@ -65,15 +73,18 @@
     renderInfo();
   }
 
-  /** P009 空态:无 job 时给上传入口(上传完带 jobId 重进本页) */
+  /** P009 空态:无 job 时给上传/空白画布/粘贴入口(上传完带 jobId 重进本页) */
   function openState() {
     $('info').textContent = '图片工作台';
     const box = document.createElement('div');
     box.className = 'open-state';
     const tip = document.createElement('p');
-    tip.textContent = '上传图片后即可标注、转格式、压缩(可多选)';
+    tip.textContent = '上传图片后即可标注、排版、转格式、压缩;也可新建空白画布直接作画(支持 Ctrl+V 粘贴)';
     const btn = document.createElement('button');
     btn.className = 'primary'; btn.textContent = '打开图片编辑';
+    const blank = document.createElement('button');
+    blank.textContent = '新建空白画布'; blank.style.marginLeft = '8px';
+    blank.addEventListener('click', () => makeBlankCanvas());
     const fi = document.createElement('input');
     fi.type = 'file'; fi.accept = 'image/*'; fi.multiple = true; fi.hidden = true;
     btn.addEventListener('click', () => fi.click());
@@ -87,8 +98,15 @@
       if (!r.ok) { tip.textContent = '上传失败:' + (r.error === 'NO_IMAGE' ? '所选文件不是图片' : CS.errText(r.error)); return; }
       location.href = 'preview.html?job=' + r.jobId;
     });
-    box.append(tip, btn, fi);
+    box.append(tip, btn, blank, fi);
+    openStateEl = box;
     $('wrap').appendChild(box);
+    applyBoardBg();
+    relayout();
+  }
+  /** 有内容后撤掉空态框 */
+  function leaveOpenState() {
+    if (openStateEl) { openStateEl.remove(); openStateEl = null; }
   }
 
   /** P009 多图上传:逐张拉取进画板(P013),自动堆叠,可拖动摆位,下载按布局合成 */
@@ -206,24 +224,36 @@
       y += cardDispSize(c).h + 24;
     }
   }
-  /** 卡片 bbox(画板 CSS px):容器尺寸与画板合成共用这套数学 */
+  /** 画板 bbox(布局 CSS px):卡片 ∪ P014 画板标注;原点可为负(标注画出左上界) */
   function boardBBox() {
-    let w = 0, h = 0;
+    let x0 = null, y0 = null, x1 = 0, y1 = 0;
+    const union = (x, y, w, h) => {
+      if (x0 === null) { x0 = x; y0 = y; x1 = x + w; y1 = y + h; return; }
+      x0 = Math.min(x0, x); y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x + w); y1 = Math.max(y1, y + h);
+    };
     for (const c of cards) {
       if (!c.img.naturalWidth) continue;
       const d = cardDispSize(c);
-      w = Math.max(w, c.x + d.w);
-      h = Math.max(h, c.y + d.h);
+      union(c.x, c.y, d.w, d.h);
     }
-    return { w, h };
+    const ab = Edit.boardAnnsBBox && Edit.boardAnnsBBox();
+    if (ab) union(ab.x, ab.y, ab.w, ab.h);
+    if (x0 === null) return { x: 0, y: 0, w: 0, h: 0 };
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   }
+  /** wrap 尺寸 = 内容右/下界 ∪ 视口(留白供画板作画);导出只用 boardBBox,不带视口余量 */
   function relayout() {
     const bb = boardBBox();
-    $('wrap').style.width = Math.ceil(bb.w) + 'px';
-    $('wrap').style.height = Math.ceil(bb.h) + 'px';
+    const minW = Math.max(0, $('stage').clientWidth - 32), minH = Math.max(0, $('stage').clientHeight - 32);
+    const W = Math.ceil(Math.max(bb.x + bb.w, minW)), H = Math.ceil(Math.max(bb.y + bb.h, minH));
+    if (W === wrapW && H === wrapH) return;
+    wrapW = W; wrapH = H;
+    $('wrap').style.width = W + 'px';
+    $('wrap').style.height = H + 'px';
   }
-  /** 画板卡片:cap 悬浮标签 + 图;预览态拖动摆位置(编辑态拖动=画标注,不抢) */
-  function buildCard(label, blob, filename, onready) {
+  /** 画板卡片:cap 悬浮标签 + ×移除 + 图;预览态拖动摆位置(编辑态拖动=画标注,不抢) */
+  function buildCard(label, blob, filename, onready, opts) {
     const el = document.createElement('div');
     el.className = 'board-card';
     const cap = document.createElement('div');
@@ -234,17 +264,28 @@
     img.draggable = false;
     img.title = '拖动摆位置;右下角缩放;下载按画板布局导出';
     img.src = URL.createObjectURL(blob);
-    const card = { el, img, x: 0, y: 0 };
+    const card = { el, img, x: 0, y: 0, fresh: !!(opts && opts.fresh) };
     img.onload = () => {
       blobOf.set(img, blob);
       Edit.mount(img, blob, filename);
-      // 单卡片:s 为纯视图(初始适应,与旧版观感一致);多卡片:s 为布局量,初始自然尺寸
-      scales.set(img, cards.length === 1 ? fitScaleOf(img) : 1);
+      // 单卡片(或显式 fit):s 为纯视图(初始适应,与旧版观感一致);多卡片:s 为布局量,初始自然尺寸
+      const fit = opts && typeof opts.fit === 'boolean' ? opts.fit : cards.length === 1;
+      card.fitScale = fit;
+      scales.set(img, fit ? fitScaleOf(img) : 1);
       applyImg(img);
       if (!boardTouched) autoStack();
+      else if (card.fresh) { // 手动布局中追加:放到其它内容右侧,不压旧卡片
+        let mx = 0;
+        for (const c of cards) { if (c === card || !c.img.naturalWidth) continue; mx = Math.max(mx, c.x + cardDispSize(c).w); }
+        const ab = Edit.boardAnnsBBox && Edit.boardAnnsBBox();
+        if (ab) mx = Math.max(mx, ab.x + ab.w);
+        card.x = mx ? mx + 40 : 0; card.y = 0;
+        el.style.left = card.x + 'px'; el.style.top = '0px';
+      }
       relayout();
       if (onready) onready(img);
       if (!activeImg) selectImg(img);
+      if (card.fresh) selectImg(img);
     };
     el.addEventListener('pointerdown', (e) => {
       if (Edit.mode === 'edit' || e.button !== 0) return;
@@ -264,11 +305,35 @@
       Edit.redraw();
     });
     el.addEventListener('pointerup', () => { boardDrag = null; });
-    el.appendChild(cap); el.appendChild(img);
+    const bx = document.createElement('button');
+    bx.className = 'bx'; bx.textContent = '×'; bx.title = '从画板移除这张图(及其标注)';
+    bx.addEventListener('pointerdown', (e) => e.stopPropagation());
+    bx.addEventListener('click', (e) => { e.stopPropagation(); removeCard(card); });
+    el.appendChild(cap); el.appendChild(img); el.appendChild(bx);
     cards.push(card);
     return card;
   }
-  /** 画板合成:按卡片位置与缩放拼出最终 PNG;单卡片不走这里(原图直通零回归) */
+  /** 从画板移除卡片:注销编辑目标、回收 URL,选中态顺延到第一张 */
+  function removeCard(card) {
+    const i = cards.indexOf(card);
+    if (i < 0) return;
+    cards.splice(i, 1);
+    URL.revokeObjectURL(card.img.src);
+    blobOf.delete(card.img);
+    scales.delete(card.img);
+    if (Edit.unmount) Edit.unmount(card.img);
+    card.el.remove();
+    if (activeImg === card.img) {
+      activeImg = null;
+      if (cards.length) selectImg(cards[0].img);
+    }
+    relayout();
+    Edit.redraw();
+    Edit.setHasMain(cards.length > 0);
+    $('info').textContent = cards.length ? $('info').textContent : '画板已空:可 ＋图片 / ＋空白画布 / Ctrl+V 粘贴';
+    toast('已移除图片');
+  }
+  /** 画板合成:垫背景色 → 按卡片位置缩放拼图 → P014 画板标注层;单卡无标注无背景不走这里(原图直通零回归) */
   async function composeBoard() {
     const dpr = window.devicePixelRatio || 1;
     const bb = boardBBox();
@@ -278,6 +343,9 @@
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
     const cx = c.getContext('2d');
+    if (boardBg !== 'transparent') { cx.fillStyle = boardBg; cx.fillRect(0, 0, W, H); }
+    cx.save();
+    cx.translate(-Math.round(bb.x * dpr), -Math.round(bb.y * dpr)); // 标注可能画到负象限,平移对齐
     for (const card of cards) {
       if (!card.img.naturalWidth) continue;
       let src = blobOf.get(card.img);
@@ -287,7 +355,10 @@
       const s = scales.get(card.img) || 1;
       cx.drawImage(bmp, Math.round(card.x * dpr), Math.round(card.y * dpr),
         Math.round(bmp.width * s), Math.round(bmp.height * s));
+      bmp.close();
     }
+    if (Edit.drawBoardLayer) Edit.drawBoardLayer(cx, dpr);
+    cx.restore();
     const out = await new Promise((res) => c.toBlob(res, 'image/png'));
     if (!out) throw new Error('toBlob failed');
     return out;
@@ -326,41 +397,181 @@
     $('notes').appendChild(d);
   }
 
-  /* ---------------- 缩放 ---------------- */
+  /* ---------------- 缩放(P014:滑杆/数字无级调节 + 平滑滚轮;± 按钮 ×1.1 细调) ---------------- */
+  const ZMIN = 0.05, ZMAX = 4;
+  /** 缩放作用目标:选中图优先,回退第一张(蓝框消掉后仍可缩放,语义不变) */
+  function mainImg() {
+    if (activeImg && activeImg.isConnected) return activeImg;
+    return cards.length ? cards[0].img : null;
+  }
   /** 把 img 的缩放比落到样式(明确宽度后须摘掉 max-width:100%,否则放大不生效) */
   function applyImg(img) {
     const dpr = window.devicePixelRatio || 1;
     img.style.maxWidth = 'none';
     img.style.width = Math.round(img.naturalWidth / dpr * (scales.get(img) || 1)) + 'px';
   }
-  function curScale() { return scales.get(activeImg) || 1; }
+  function curScale() { const img = mainImg(); return img ? (scales.get(img) || 1) : 1; }
   function fitScaleOf(img) {
     const dpr = window.devicePixelRatio || 1;
     return ($('stage').clientWidth - 32) / (img.naturalWidth / dpr);
   }
+  /** 缩放控件回显:滑杆与数字框同步当前比例 */
+  function syncZoomUI() {
+    const v = Math.round(curScale() * 100);
+    $('zoom-range').value = v;
+    $('zoom-num').value = v;
+  }
   function applyScale() {
-    if (!activeImg || !activeImg.naturalWidth) return;
-    applyImg(activeImg);
-    $('zoom-label').textContent = Math.round(curScale() * 100) + '%';
+    const img = mainImg();
+    if (!img || !img.naturalWidth) { syncZoomUI(); return; }
+    applyImg(img);
+    syncZoomUI();
     Edit.redraw();
   }
   function setScale(img, s) {
     if (!img || !img.naturalWidth) return;
-    scales.set(img, s);
-    if (img === activeImg) applyScale();
-    else { applyImg(img); Edit.redraw(); }
+    scales.set(img, Math.max(ZMIN, Math.min(ZMAX, s)));
+    applyImg(img);
+    if (img === mainImg()) syncZoomUI();
+    Edit.redraw();
     if (!boardTouched) autoStack(); // 缩放改了卡片尺寸,未手动布局时顺势重堆叠
     relayout();
   }
-  $('zoom-in').addEventListener('click', () => setScale(activeImg, Math.min(4, curScale() * 1.25)));
-  $('zoom-out').addEventListener('click', () => setScale(activeImg, Math.max(0.05, curScale() / 1.25)));
-  $('zoom-100').addEventListener('click', () => setScale(activeImg, 1));
-  $('zoom-fit').addEventListener('click', () => setScale(activeImg, fitScaleOf(activeImg)));
+  $('zoom-in').addEventListener('click', () => setScale(mainImg(), curScale() * 1.1));
+  $('zoom-out').addEventListener('click', () => setScale(mainImg(), curScale() / 1.1));
+  $('zoom-100').addEventListener('click', () => setScale(mainImg(), 1));
+  $('zoom-fit').addEventListener('click', () => { const img = mainImg(); if (img) setScale(img, fitScaleOf(img)); });
+  $('zoom-range').addEventListener('input', () => setScale(mainImg(), +$('zoom-range').value / 100));
+  $('zoom-num').addEventListener('change', () => {
+    const v = Math.round(+$('zoom-num').value || 100);
+    setScale(mainImg(), v / 100);
+    syncZoomUI(); // 超界时回显钳制后的值
+  });
   $('stage').addEventListener('wheel', (e) => {
     if (!e.ctrlKey) return;
     e.preventDefault();
-    setScale(activeImg, Math.max(0.05, Math.min(4, curScale() * (e.deltaY < 0 ? 1.1 : 1 / 1.1))));
+    setScale(mainImg(), curScale() * Math.exp(-e.deltaY * 0.001)); // 指数平滑:触控板逐像素,滚轮每格约 ±8%
   }, { passive: false });
+
+  /* ---------------- P014 画板操作:添加/粘贴/移除图片、背景、空白画布、点空白消蓝框 ---------------- */
+  /** 点卡片以外的空白:消掉图片选中蓝框(activeImg 保留为操作兜底,只去视觉) */
+  function clearImgSel() {
+    document.querySelectorAll('.board-card img.sel').forEach((x) => x.classList.remove('sel'));
+  }
+  $('stage').addEventListener('pointerdown', (e) => {
+    if (e.target.closest && e.target.closest('.board-card')) return;
+    clearImgSel();
+  });
+
+  /** 画板内直接加图:不走 SW/重载,blob 直接建卡;单图 fit 态在转多图时归一为布局量 1 */
+  function addImageBlobs(files) {
+    const imgs = [...files].filter((f) => /^image\//.test(f.type || ''));
+    if (!imgs.length) { toast('没有可用的图片文件', 'err'); return false; }
+    leaveOpenState();
+    const wasEmpty = cards.length === 0;
+    for (const f of imgs) {
+      const name = f.name || ('粘贴图片-' + (++cardSeq) + '.png');
+      const card = buildCard('', f, name, null, { fresh: true, fit: wasEmpty && imgs.length === 1 });
+      $('wrap').appendChild(card.el);
+    }
+    if (cards.length > 1) {
+      for (const c of cards) {
+        if (c.fitScale) { c.fitScale = false; scales.set(c.img, 1); if (c.img.naturalWidth) applyImg(c.img); }
+      }
+    }
+    if (!boardTouched) autoStack();
+    relayout();
+    Edit.setHasMain(true);
+    toast('已添加 ' + imgs.length + ' 张图片,可拖动摆位');
+    return true;
+  }
+  $('btn-addimg').addEventListener('click', () => $('fi-add').click());
+  $('fi-add').addEventListener('change', () => {
+    const fs = [...($('fi-add').files || [])];
+    $('fi-add').value = '';
+    if (fs.length) addImageBlobs(fs);
+  });
+  /** Ctrl+V 粘贴图片上画板(导出弹窗打开时不抢) */
+  window.addEventListener('paste', (e) => {
+    if (Edit.modalOpen && Edit.modalOpen()) return;
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    const files = [];
+    for (const it of items) {
+      if (it.kind === 'file' && /^image\//.test(it.type)) {
+        const f = it.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (!files.length) return; // 文本等粘贴走默认(如文字输入框)
+    e.preventDefault();
+    addImageBlobs(files);
+  });
+
+  /** 新建空白画布:视口大小 ×dpr 的透明 PNG 卡片,非破坏式追加 */
+  async function makeBlankCanvas() {
+    leaveOpenState();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(480, $('stage').clientWidth - 32), h = Math.max(360, $('stage').clientHeight - 32);
+    const c = document.createElement('canvas');
+    c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+    const blob = await new Promise((res) => c.toBlob(res, 'image/png'));
+    if (!blob) return;
+    const card = buildCard('空白画布', blob, '空白画布.png', null, { fresh: true, fit: false });
+    $('wrap').appendChild(card.el);
+    Edit.setHasMain(true);
+    toast('已新建空白画布:点「✎ 编辑」即可写字作画');
+  }
+  $('btn-blank').addEventListener('click', makeBlankCanvas);
+
+  /* -------- 画板背景:透明(棋盘格)/常用色/自定义色;导出合成时垫底色 -------- */
+  const BG_SWATCHES = [
+    ['transparent', '透明'], ['#ffffff', '白板'], ['#f1f5f9', '浅灰'], ['#fef9c3', '米黄'],
+    ['#dbeafe', '浅蓝'], ['#dcfce7', '浅绿'], ['#111827', '深色'], ['#000000', '纯黑']
+  ];
+  function applyBoardBg() {
+    if (boardBg !== 'transparent') { $('wrap').style.background = boardBg; return; }
+    const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+    $('wrap').style.background = dark
+      ? 'repeating-conic-gradient(#2a3040 0% 25%, #171a21 0% 50%) 0 0 / 24px 24px'
+      : 'repeating-conic-gradient(#c8cdd6 0% 25%, #fff 0% 50%) 0 0 / 24px 24px';
+  }
+  function setBoardBg(v) {
+    boardBg = v;
+    try { localStorage.setItem('cs.boardBg', v); } catch (e) { /* 忽略 */ }
+    applyBoardBg();
+    $('bgpop').querySelectorAll('.bgsw').forEach((x) => x.classList.toggle('on', x.dataset.bg === v));
+    if (cards.length || (Edit.hasBoardAnns && Edit.hasBoardAnns())) toast('背景已切换,导出将带上底色');
+  }
+  function buildBgPop() {
+    const pop = $('bgpop');
+    for (const [v, name] of BG_SWATCHES) {
+      const b = document.createElement('button');
+      b.className = 'bgsw' + (v === boardBg ? ' on' : '');
+      b.dataset.bg = v;
+      b.title = name;
+      if (v === 'transparent') b.classList.add('checker');
+      else b.style.background = v;
+      b.addEventListener('click', (e) => { e.stopPropagation(); setBoardBg(v); });
+      pop.insertBefore(b, pop.querySelector('label'));
+    }
+    pop.querySelector('label').addEventListener('click', (e) => e.stopPropagation());
+    $('bg-custom').addEventListener('input', () => setBoardBg($('bg-custom').value));
+  }
+  $('btn-bg').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const pop = $('bgpop');
+    if (pop.hidden) {
+      pop.hidden = false;
+      const r = $('btn-bg').getBoundingClientRect();
+      pop.style.right = Math.max(8, innerWidth - r.right) + 'px';
+      pop.style.bottom = (innerHeight - r.top + 8) + 'px';
+    } else pop.hidden = true;
+  });
+  window.addEventListener('pointerdown', (e) => {
+    const pop = $('bgpop');
+    if (!pop.hidden && !pop.contains(e.target) && e.target !== $('btn-bg')) pop.hidden = true;
+  });
 
   /* ---------------- 下载 / 复制(所见即所得) ---------------- */
   async function downloadBlob(blob, filename) {
@@ -645,7 +856,7 @@
     syncCtlLabels();
     schedulePreview(0);
   });
-  window.addEventListener('resize', () => { if (dlgCtx) renderCropBox(); });
+  window.addEventListener('resize', () => { if (dlgCtx) renderCropBox(); relayout(); });
 
   /* -------- 放大查看(P011 灯箱):原图/导出图同位切换,保持缩放与滚动位置 -------- */
   function openLightbox(which) {
@@ -721,13 +932,15 @@
   $('dlg-src').addEventListener('click', () => { if (!cropMode) openLightbox('src'); });
   $('dlg-out').addEventListener('click', () => { if (dlgCtx && dlgCtx.outUrl) openLightbox('out'); });
 
-  /** 指定图的当前呈现:多卡片→画板合成;单卡片有标注→全分辨率合成 PNG,无标注→原始 blob(零回归) */
+  /** 指定图的当前呈现:多卡/有画板标注/有底色→画板合成;单卡有标注→全分辨率合成 PNG,无标注→原始 blob(零回归) */
   async function displayBlobFor(img) {
-    if (cards.length > 1) {
-      const blob = await composeBoard();
-      return { blob, name: (meta && meta.name) || 'board.png' };
-    }
     const t = img && Edit.targetOf(img);
+    const baseName = (meta && meta.name) || (t && t.name) || 'board.png';
+    const composed = cards.length > 1 || boardBg !== 'transparent' || (Edit.hasBoardAnns && Edit.hasBoardAnns());
+    if (composed) {
+      const blob = await composeBoard();
+      return { blob, name: asPng(baseName) };
+    }
     const name = (t && t.name) || (meta && meta.name) || 'image.png';
     if (t) {
       try {
@@ -744,6 +957,7 @@
       if (!blob) return;
       openExport(blob, name);
     } catch (e) {
+      if (e && e.message === 'empty-board') return toast('画板还没有内容,先添加图片或作画', 'err');
       toast('画板超出浏览器画布上限,请用右下角 － 缩小图片后再导出', 'err');
     }
   }
@@ -778,6 +992,12 @@
   $('btn-edit').addEventListener('click', () => Edit.setMode('edit'));
   // 编辑态工具栏里的 复制/下载 复用同一出口(作用于选中图,见 edit.js mainTarget)
   Edit._emit = (kind) => { if (kind === 'copy') doCopy(); else if (kind === 'download') doDownload(); };
+  Edit.onHint = (t) => toast(t);            // 编辑器轻提示(如马赛克仅限图片)
+  Edit._boardChange = relayout;             // 画板标注层增删 → 重算 wrap 尺寸
+
+  buildBgPop();
+  applyBoardBg();
+  syncZoomUI();
 
   /** P012 操作提示:底部居中 toast,滑入后自动消失;kind='err' 为错误红 */
   function toast(text, kind) {

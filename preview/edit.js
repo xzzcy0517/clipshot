@@ -1,10 +1,11 @@
 'use strict';
 /**
- * P007 微信式截图编辑器(预览页内双状态标注)。
- * 决策基线见 docs/proposals/P007:D1 双状态 D2 七工具 D3 不可点选 D4 像素马赛克
- * D5 可再编 D6 Esc保标注/还原清标注 D7 所见即所得导出。
+ * P007 微信式截图编辑器(预览页内双状态标注)+ P014 画板教学化增强。
+ * 决策基线见 docs/proposals/P007(D1 双状态 D2 七工具 D3 不可点选 D4 像素马赛克
+ * D5 可再编 D6 Esc保标注/还原清标注 D7 所见即所得导出)与 P014(画板标注层/形状库)。
  * 核心承诺:原图不可变(标注=矢量层,坐标一律存「图像原始像素」系);
- * 无标注时导出走原 blob(零回归)。
+ * 画板标注挂在 #wrap 伪目标上(坐标=画板布局 px,原点固定左上,导出按 dpr 重绘);
+ * 无标注且无画板层时导出走原 blob(零回归)。
  * 纯函数(CS.editP)与标注栈(CS.Store)在头部,可被 node 测试直接 eval。
  */
 (function () {
@@ -64,12 +65,69 @@
     }
     return pts.length === 1 && Math.hypot(x - pts[0].x, y - pts[0].y) <= halfW;
   };
+  /** 肘形连接线:起点横到中线 → 竖 → 横到终点 */
+  P.elbowPts = function (x0, y0, x1, y1) {
+    const mx = (x0 + x1) / 2;
+    return [{ x: x0, y: y0 }, { x: mx, y: y0 }, { x: mx, y: y1 }, { x: x1, y: y1 }];
+  };
+  /** 任意标注的包围盒(所在坐标系 px,pad 含线宽与箭头头余量) */
+  P.annBBox = function (a) {
+    const pad = (a.w || 2) / 2 + 1;
+    if (a.bw !== undefined) return { x: a.x - pad, y: a.y - pad, w: a.bw + pad * 2, h: a.bh + pad * 2 };
+    if (a.pts) return P.pathBBox(a.pts, pad);
+    if (a.x0 !== undefined) {
+      const p2 = pad + (a.w || 2) * 4; // 箭头头余量
+      return {
+        x: Math.min(a.x0, a.x1) - p2, y: Math.min(a.y0, a.y1) - p2,
+        w: Math.abs(a.x1 - a.x0) + p2 * 2, h: Math.abs(a.y1 - a.y0) + p2 * 2
+      };
+    }
+    if (a.tool === 'text') {
+      return { x: a.x, y: a.y, w: a._mw || String(a.text).length * a.fs, h: a._mh || a.fs * 1.4 };
+    }
+    return { x: 0, y: 0, w: 0, h: 0 };
+  };
+  /**
+   * P014 形状库(纯数据;绘制函数在下方 DOM 段 SHAPE_DRAW,图标与画布共用)。
+   * line=true 用 x0/y0/x1/y1 几何(端点拖拽);否则用 x/y/bw/bh(8 把手)。
+   * fillable=true 支持填充三态(无/淡/实)。
+   */
+  P.SHAPES = [
+    { id: 'rect', label: '矩形', cat: '基本', fillable: true },
+    { id: 'roundrect', label: '圆角矩形', cat: '基本', fillable: true },
+    { id: 'ellipse', label: '椭圆', cat: '基本', fillable: true },
+    { id: 'diamond', label: '菱形', cat: '基本', fillable: true },
+    { id: 'triangle', label: '三角形', cat: '基本', fillable: true },
+    { id: 'star', label: '五角星', cat: '基本', fillable: true },
+    { id: 'pentagon', label: '五边形', cat: '基本', fillable: true },
+    { id: 'hexagon', label: '六边形', cat: '基本', fillable: true },
+    { id: 'line', label: '直线', cat: '线条', line: true },
+    { id: 'arrow', label: '箭头', cat: '线条', line: true },
+    { id: 'darrow', label: '双箭头', cat: '线条', line: true },
+    { id: 'elbow', label: '肘形箭头', cat: '线条', line: true },
+    { id: 'capsule', label: '起止框', cat: '流程图', fillable: true },
+    { id: 'parallelogram', label: '数据', cat: '流程图', fillable: true },
+    { id: 'cylinder', label: '数据库', cat: '流程图', fillable: true },
+    { id: 'document', label: '文档', cat: '流程图', fillable: true },
+    { id: 'predefined', label: '预定义过程', cat: '流程图', fillable: true },
+    { id: 'classbox', label: '类框', cat: 'UML', fillable: true },
+    { id: 'lifeline', label: '生命线', cat: 'UML' },
+    { id: 'actor', label: '参与者', cat: 'UML' },
+    { id: 'folder', label: '包', cat: 'UML', fillable: true },
+    { id: 'foldnote', label: '注释', cat: 'UML', fillable: true },
+    { id: 'cloud', label: '云', cat: '图标', fillable: true },
+    { id: 'server', label: '服务器', cat: '图标', fillable: true },
+    { id: 'browser', label: '浏览器', cat: '图标', fillable: true },
+    { id: 'mobile', label: '手机', cat: '图标', fillable: true },
+    { id: 'user', label: '用户', cat: '图标' },
+    { id: 'gear', label: '齿轮', cat: '图标' }
+  ];
 
 
   /** 标注当前几何快照(用于 edit 操作的可逆记录) */
   P.snap = function (a) {
     const o = { tool: a.tool };
-    for (const k of ['x', 'y', 'bw', 'bh', 'x0', 'y0', 'x1', 'y1', 'w', 'fs', 'text', 'color']) {
+    for (const k of ['x', 'y', 'bw', 'bh', 'x0', 'y0', 'x1', 'y1', 'w', 'fs', 'text', 'color', 'shape', 'fill']) {
       if (a[k] !== undefined) o[k] = a[k];
     }
     if (a.pts) o.pts = a.pts.map((p) => ({ x: p.x, y: p.y }));
@@ -77,9 +135,9 @@
   };
   const DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
   const DIR_CURSOR = { nw: 'nwse-resize', n: 'ns-resize', ne: 'nesw-resize', e: 'ew-resize', se: 'nwse-resize', s: 'ns-resize', sw: 'nesw-resize', w: 'ew-resize' };
-  /** 选中标注的把手点(图像 px):方框/椭圆 8 向,箭头 2 端,其余无 */
+  /** 选中标注的把手点(图像 px):方框/椭圆/形状 8 向,箭头/线条 2 端,其余无 */
   P.handlePoints = function (a) {
-    if (a.tool === 'rect' || a.tool === 'ellipse') {
+    if (a.tool === 'rect' || a.tool === 'ellipse' || (a.tool === 'shape' && a.x0 === undefined)) {
       const x = a.x, y = a.y, w = a.bw, h = a.bh;
       return DIRS.map((d) => ({
         x: d.includes('w') ? x : d.includes('e') ? x + w : x + w / 2,
@@ -87,7 +145,7 @@
         dir: d, c: DIR_CURSOR[d]
       }));
     }
-    if (a.tool === 'arrow') {
+    if (a.tool === 'arrow' || (a.tool === 'shape' && a.x0 !== undefined)) {
       return [{ x: a.x0, y: a.y0, dir: 'p0', c: 'move' }, { x: a.x1, y: a.y1, dir: 'p1', c: 'move' }];
     }
     return [];
@@ -126,6 +184,20 @@
       return inner < 1 ? null : 'body';
     }
     if (a.tool === 'arrow') return P.ptSeg(x, y, a.x0, a.y0, a.x1, a.y1) <= slop + a.w / 2 ? 'body' : null;
+    if (a.tool === 'shape') {
+      if (a.x0 !== undefined) { // 线条类:直线/箭头/双箭头/肘形
+        if (a.shape === 'elbow') {
+          const pts = P.elbowPts(a.x0, a.y0, a.x1, a.y1);
+          for (let i = 1; i < pts.length; i++) {
+            if (P.ptSeg(x, y, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y) <= slop + a.w / 2) return 'body';
+          }
+          return null;
+        }
+        return P.ptSeg(x, y, a.x0, a.y0, a.x1, a.y1) <= slop + a.w / 2 ? 'body' : null;
+      }
+      // bbox 类形状:整体物件,内部也算命中(便于选中拖动)
+      return x >= a.x - slop && x <= a.x + a.bw + slop && y >= a.y - slop && y <= a.y + a.bh + slop ? 'body' : null;
+    }
     if (a.tool === 'text') {
       const w = a._mw || a.text.length * a.fs, h = a._mh || a.fs * 1.4;
       return x >= a.x - slop && x <= a.x + w + slop && y >= a.y - slop && y <= a.y + h + slop ? 'body' : null;
@@ -133,19 +205,29 @@
     return P.inStroke(a.pts, x, y, a.w / 2 + slop) ? 'body' : null;
   };
 
-  /** 标注栈:add/clear 两种操作,undo/redo 完整可逆 */
+  /** 标注栈:add/edit/del/clear 四种操作,undo/redo 完整可逆;
+   *  每个操作带全局递增 seq,跨目标(图片/画板)撤销时按 seq 选最新者(P014) */
+  let opSeq = 0;
   class Store {
     constructor() { this.anns = []; this.stack = []; this.redone = []; }
-    add(a) { this.anns.push(a); this.stack.push({ t: 'add', item: a }); this.redone.length = 0; }
+    add(a) { this.anns.push(a); this.stack.push({ t: 'add', item: a, seq: ++opSeq }); this.redone.length = 0; }
     edit(item, before) {
-      this.stack.push({ t: 'edit', item, before, after: P.snap(item) });
+      this.stack.push({ t: 'edit', item, before, after: P.snap(item), seq: ++opSeq });
       this.redone.length = 0;
+    }
+    del(item) {
+      const i = this.anns.indexOf(item);
+      if (i < 0) return false;
+      this.anns.splice(i, 1);
+      this.stack.push({ t: 'del', item, index: i, seq: ++opSeq });
+      this.redone.length = 0;
+      return true;
     }
     clearAll() {
       if (!this.anns.length) return false;
       const items = this.anns.slice();
       this.anns = [];
-      this.stack.push({ t: 'clear', items });
+      this.stack.push({ t: 'clear', items, seq: ++opSeq });
       this.redone.length = 0;
       return true;
     }
@@ -177,15 +259,16 @@
 
   if (typeof document === 'undefined') return; // node 下只导出纯逻辑
 
-  /* ================ 编辑器实现(v0.8.7:圆点档位/马赛克圆圈笔刷/暗色按钮修复) ================ */
+  /* ================ 编辑器实现(P014:画板标注层/形状库/背景与任意位置作画) ================ */
   const TOOLS = [
     { id: 'rect', key: '1', glyph: '▭', tip: '方框(Shift 锁正方形)', kind: 'shape' },
     { id: 'ellipse', key: '2', glyph: '◯', tip: '椭圆(Shift 锁正圆)', kind: 'shape' },
     { id: 'arrow', key: '3', glyph: '↗', tip: '箭头(Shift 吸附 15°)', kind: 'shape' },
     { id: 'pen', key: '4', glyph: '✎', tip: '画笔', kind: 'shape' },
-    { id: 'mosaic', key: '5', glyph: '▦', tip: '马赛克(涂抹背景像素格)', kind: 'mosaic' },
+    { id: 'mosaic', key: '5', glyph: '▦', tip: '马赛克(涂抹背景像素格,仅限图片上)', kind: 'mosaic' },
     { id: 'text', key: '6', glyph: 'T', tip: '文字(点击输入,Enter 换行,点空白处完成)', kind: 'text' },
-    { id: 'highlight', key: '7', glyph: '⚡', tip: '高亮(半透明荧光条)', kind: 'highlight' }
+    { id: 'highlight', key: '7', glyph: '⚡', tip: '高亮(半透明荧光条)', kind: 'highlight' },
+    { id: 'shape', key: '8', glyph: '⬦', tip: '形状库:基本/线条/流程图/UML/图标,拖拽放置', kind: 'shape' }
   ];
   // 线宽标准按网页正文 14–16px 定:细=2 中=3 粗=5(图像像素);高亮/马赛克带按视觉需要加宽
   const TIERS = { shape: [2, 3, 5], mosaic: [16, 28, 44], highlight: [14, 22, 32], text: [14, 20, 28] };
@@ -193,15 +276,209 @@
   const MOSAIC_CELL = 12;
   const TIER_DOT = [6, 9, 13]; // 三档实心圆直径(CSS px,对标微信:细=小圆 中=中圆 粗=大圆)
   const TIER_TEXT = ['小', '中', '大']; // 文字三档字号标签
+  const FILL_MODES = ['none', 'alpha', 'solid'];
+  const FILL_LABEL = { none: '无填充', alpha: '淡填充', solid: '实心填充' };
+
+  /* -------- P014 形状绘制:bbox 类 draw(c,x,y,w,h,st);线条类 line(c,x0,y0,x1,y1,st) -------- */
+  function rrPath(c, x, y, w, h, r) {
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+  function polyPath(c, pts, close) {
+    c.beginPath();
+    c.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+    if (close !== false) c.closePath();
+  }
+  function regPoly(cx, cy, r, n, rotDeg) {
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = (rotDeg + i * 360 / n) * Math.PI / 180;
+      pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+    }
+    return pts;
+  }
+  function starPts(cx, cy, rO, rI) {
+    const pts = [];
+    for (let i = 0; i < 10; i++) {
+      const a = (-90 + i * 36) * Math.PI / 180, r = i % 2 ? rI : rO;
+      pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+    }
+    return pts;
+  }
+  /** 填充(仅 fillable 形状):alpha=淡色填充,solid=实心;随后统一描边由调用方做 */
+  function fillPath(c, st, fillable) {
+    if (!fillable || !st.fill || st.fill === 'none') return;
+    c.save();
+    if (st.fill === 'alpha') c.globalAlpha = 0.16;
+    c.fillStyle = st.col;
+    c.fill();
+    c.restore();
+  }
+  /** bbox 形状通用:build 建主路径 → 填充 → 描边 → detail 补内部细节线 */
+  function shBox(build, detail, fillable) {
+    return function (c, x, y, w, h, st) {
+      build(c, x, y, w, h);
+      fillPath(c, st, fillable !== false);
+      c.stroke();
+      if (detail) { c.beginPath(); detail(c, x, y, w, h, st); c.stroke(); }
+    };
+  }
+  function arrowHead(c, x0, y0, x1, y1, col, lw) {
+    const ang = Math.atan2(y1 - y0, x1 - x0);
+    const dist = Math.hypot(x1 - x0, y1 - y0);
+    const head = Math.min(Math.max(dist * 0.4, 8), Math.max(8, lw * 3.6));
+    c.fillStyle = col;
+    c.beginPath();
+    c.moveTo(x1, y1);
+    c.lineTo(x1 - Math.cos(ang - 0.42) * head, y1 - Math.sin(ang - 0.42) * head);
+    c.lineTo(x1 - Math.cos(ang) * head * 0.55, y1 - Math.sin(ang) * head * 0.55);
+    c.lineTo(x1 - Math.cos(ang + 0.42) * head, y1 - Math.sin(ang + 0.42) * head);
+    c.closePath(); c.fill();
+  }
+  function linePath(c, x0, y0, x1, y1, st, headAtEnd, headAtStart) {
+    c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
+    if (headAtEnd) arrowHead(c, x0, y0, x1, y1, st.col, st.lw);
+    if (headAtStart) arrowHead(c, x1, y1, x0, y0, st.col, st.lw);
+  }
+  const SHAPE_DRAW = {
+    rect: shBox((c, x, y, w, h) => { c.beginPath(); c.rect(x, y, w, h); }),
+    roundrect: shBox((c, x, y, w, h) => rrPath(c, x, y, w, h, Math.min(w, h) * 0.18)),
+    ellipse: shBox((c, x, y, w, h) => { c.beginPath(); c.ellipse(x + w / 2, y + h / 2, Math.max(1, w / 2), Math.max(1, h / 2), 0, 0, Math.PI * 2); }),
+    diamond: shBox((c, x, y, w, h) => polyPath(c, [[x + w / 2, y], [x + w, y + h / 2], [x + w / 2, y + h], [x, y + h / 2]])),
+    triangle: shBox((c, x, y, w, h) => polyPath(c, [[x + w / 2, y], [x + w, y + h], [x, y + h]])),
+    star: shBox((c, x, y, w, h) => polyPath(c, starPts(x + w / 2, y + h / 2, Math.min(w, h) / 2, Math.min(w, h) / 5))),
+    pentagon: shBox((c, x, y, w, h) => polyPath(c, regPoly(x + w / 2, y + h / 2, Math.min(w, h) / 2, 5, -90))),
+    hexagon: shBox((c, x, y, w, h) => polyPath(c, regPoly(x + w / 2, y + h / 2, Math.min(w, h) / 2, 6, 0))),
+    capsule: shBox((c, x, y, w, h) => rrPath(c, x, y, w, h, h / 2)),
+    parallelogram: shBox((c, x, y, w, h) => {
+      const s = Math.min(w * 0.25, h * 0.9);
+      polyPath(c, [[x + s, y], [x + w, y], [x + w - s, y + h], [x, y + h]]);
+    }),
+    cylinder: shBox((c, x, y, w, h) => {
+      const ry = Math.max(2, h * 0.12);
+      c.beginPath();
+      c.ellipse(x + w / 2, y + ry, w / 2, ry, 0, 0, Math.PI * 2);
+      c.moveTo(x, y + ry); c.lineTo(x, y + h - ry);
+      c.ellipse(x + w / 2, y + h - ry, w / 2, ry, 0, Math.PI, 0, true);
+      c.lineTo(x + w, y + ry);
+    }),
+    document: shBox((c, x, y, w, h) => {
+      const b = y + h - Math.min(h * 0.14, 14), wv = Math.min(h * 0.14, 14);
+      c.beginPath();
+      c.moveTo(x, y); c.lineTo(x + w, y); c.lineTo(x + w, b);
+      c.bezierCurveTo(x + w * 0.75, b + wv * 1.6, x + w * 0.55, b - wv * 1.6, x + w * 0.3, b);
+      c.bezierCurveTo(x + w * 0.15, b + wv * 0.8, x + w * 0.08, b + wv * 0.4, x, b);
+      c.closePath();
+    }),
+    predefined: shBox((c, x, y, w, h) => { c.beginPath(); c.rect(x, y, w, h); }, (c, x, y, w, h) => {
+      const i = Math.max(4, w * 0.08);
+      c.moveTo(x + i, y); c.lineTo(x + i, y + h); c.moveTo(x + w - i, y); c.lineTo(x + w - i, y + h);
+    }),
+    classbox: shBox((c, x, y, w, h) => { c.beginPath(); c.rect(x, y, w, h); }, (c, x, y, w, h) => {
+      c.moveTo(x, y + h / 3); c.lineTo(x + w, y + h / 3);
+      c.moveTo(x, y + h * 2 / 3); c.lineTo(x + w, y + h * 2 / 3);
+    }),
+    lifeline: shBox((c, x, y, w, h) => { c.beginPath(); c.rect(x, y, w, Math.max(6, h * 0.18)); },
+      (c, x, y, w, h) => {
+        c.save(); c.setLineDash([6, 5]);
+        c.moveTo(x + w / 2, y + Math.max(6, h * 0.18)); c.lineTo(x + w / 2, y + h);
+        c.stroke(); c.restore();
+        c.beginPath();
+      }, false),
+    actor: shBox((c, x, y, w, h) => {
+      const r = Math.min(w, h) * 0.14, cx = x + w / 2;
+      c.beginPath(); c.arc(cx, y + r, r, 0, Math.PI * 2);
+      c.moveTo(cx, y + r * 2); c.lineTo(cx, y + h * 0.55);
+      c.moveTo(x + w * 0.08, y + h * 0.3); c.lineTo(x + w * 0.92, y + h * 0.3);
+      c.moveTo(cx, y + h * 0.55); c.lineTo(x + w * 0.12, y + h);
+      c.moveTo(cx, y + h * 0.55); c.lineTo(x + w * 0.88, y + h);
+    }, null, false),
+    folder: shBox((c, x, y, w, h) => {
+      const t = Math.max(3, h * 0.22);
+      c.beginPath();
+      c.moveTo(x, y + t); c.lineTo(x, y); c.lineTo(x + w * 0.38, y); c.lineTo(x + w * 0.48, y + t);
+      c.lineTo(x + w, y + t); c.lineTo(x + w, y + h); c.lineTo(x, y + h); c.closePath();
+    }),
+    foldnote: shBox((c, x, y, w, h) => {
+      const f = Math.min(w, h) * 0.22;
+      c.beginPath();
+      c.moveTo(x, y); c.lineTo(x + w - f, y); c.lineTo(x + w, y + f); c.lineTo(x + w, y + h);
+      c.lineTo(x, y + h); c.closePath();
+      c.moveTo(x + w - f, y); c.lineTo(x + w - f, y + f); c.lineTo(x + w, y + f);
+    }),
+    cloud: shBox((c, x, y, w, h) => {
+      c.beginPath();
+      c.arc(x + w * 0.3, y + h * 0.62, h * 0.24, Math.PI * 0.5, Math.PI * 1.5);
+      c.arc(x + w * 0.52, y + h * 0.38, h * 0.3, Math.PI * 0.95, Math.PI * 1.9);
+      c.arc(x + w * 0.74, y + h * 0.6, h * 0.22, Math.PI * 1.4, Math.PI * 0.5);
+      c.closePath();
+    }),
+    server: shBox((c, x, y, w, h) => rrPath(c, x, y, w, h, Math.min(w, h) * 0.08), (c, x, y, w, h) => {
+      c.moveTo(x, y + h / 3); c.lineTo(x + w, y + h / 3);
+      c.moveTo(x, y + h * 2 / 3); c.lineTo(x + w, y + h * 2 / 3);
+      const r = Math.max(1.2, h * 0.045);
+      for (const yy of [y + h / 6, y + h / 2, y + h * 5 / 6]) {
+        c.moveTo(x + w * 0.82 + r, yy); c.arc(x + w * 0.82, yy, r, 0, Math.PI * 2);
+      }
+    }),
+    browser: shBox((c, x, y, w, h) => rrPath(c, x, y, w, h, Math.min(w, h) * 0.08), (c, x, y, w, h) => {
+      const t = Math.max(5, h * 0.2);
+      c.moveTo(x, y + t); c.lineTo(x + w, y + t);
+      const r = Math.max(1, t * 0.18);
+      for (let i = 0; i < 3; i++) { c.moveTo(x + t * 0.5 + i * t * 0.42 + r, y + t / 2); c.arc(x + t * 0.5 + i * t * 0.42, y + t / 2, r, 0, Math.PI * 2); }
+    }),
+    mobile: shBox((c, x, y, w, h) => rrPath(c, x, y, w, h, Math.min(w, h) * 0.12), (c, x, y, w, h) => {
+      const cx = x + w / 2;
+      c.moveTo(cx - w * 0.12, y + h * 0.08); c.lineTo(cx + w * 0.12, y + h * 0.08);
+      c.moveTo(cx - w * 0.16, y + h * 0.92); c.lineTo(cx + w * 0.16, y + h * 0.92);
+    }),
+    user: shBox((c, x, y, w, h) => {
+      const cx = x + w / 2, r = Math.min(w, h) * 0.18;
+      c.beginPath(); c.arc(cx, y + r * 1.2, r, 0, Math.PI * 2);
+      c.moveTo(x + w * 0.1, y + h);
+      c.arc(cx, y + h * 0.98, w * 0.4, Math.PI, Math.PI * 2);
+    }, null, false),
+    gear: shBox((c, x, y, w, h) => {
+      const cx = x + w / 2, cy = y + h / 2, r1 = Math.min(w, h) * 0.2, r2 = Math.min(w, h) * 0.32, r3 = Math.min(w, h) * 0.42;
+      c.beginPath(); c.arc(cx, cy, r2, 0, Math.PI * 2);
+      c.moveTo(cx + r1, cy); c.arc(cx, cy, r1, 0, Math.PI * 2);
+      for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4;
+        c.moveTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+        c.lineTo(cx + Math.cos(a) * r3, cy + Math.sin(a) * r3);
+      }
+    }, null, false),
+    line: { line: (c, x0, y0, x1, y1, st) => linePath(c, x0, y0, x1, y1, st, false, false) },
+    arrow: { line: (c, x0, y0, x1, y1, st) => linePath(c, x0, y0, x1, y1, st, true, false) },
+    darrow: { line: (c, x0, y0, x1, y1, st) => linePath(c, x0, y0, x1, y1, st, true, true) },
+    elbow: {
+      line: (c, x0, y0, x1, y1, st) => {
+        const pts = P.elbowPts(x0, y0, x1, y1);
+        c.beginPath();
+        c.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) c.lineTo(pts[i].x, pts[i].y);
+        c.stroke();
+        arrowHead(c, pts[2].x, pts[2].y, pts[3].x, pts[3].y, st.col, st.lw);
+      }
+    }
+  };
 
   const $ = (id) => document.getElementById(id);
-  let overlay = null, ctx = null, stage = null, bar = null, previewBar = null, pop = null;
+  let overlay = null, ctx = null, stage = null, wrapEl = null, bar = null, previewBar = null, pop = null;
   let mode = 'preview';
   let tool = 'rect';
   const tierByKind = { shape: 1, mosaic: 1, highlight: 1, text: 1 };
   let colorIdx = 0;
-  const targets = new Map(); // imgEl → {imgEl, blob, bmp, natW, natH, store, name}
-  const order = [];
+  const targets = new Map(); // imgEl|wrapEl → {imgEl, blob, bmp, natW, natH, store, name, isBoard}
+  const order = []; // 绘制/命中顺序:#wrap(画板层)恒在首位=最底层
+  let boardT = null;  // P014 画板伪目标:isBoard,坐标=画板布局 px(s=1)
+  let curShape = 'roundrect'; // 形状库当前形状
+  let fillMode = 'none';      // 形状填充三态:none/alpha/solid
   let activeEl = null; // P012:预览页选中图,导出/复制默认作用于它(回退首张)
   let drag = null;
   let textInput = null;
@@ -211,14 +488,18 @@
   let hasMain = false;
 
   function toolDef(id) { return TOOLS.find((t) => t.id === id); }
+  function shapeDef(id) { return P.SHAPES.find((s) => s.id === id); }
   function curColor() { return COLORS[colorIdx]; }
   function curWidth(kind) { const t = TIERS[kind]; return t[tierByKind[kind] || 0]; }
 
   function ensureDom() {
     if (overlay) return true;
-    overlay = $('editlayer'); stage = $('stage'); bar = $('editbar'); previewBar = $('previewbar');
-    if (!overlay || !stage || !bar || !previewBar) return false;
+    overlay = $('editlayer'); stage = $('stage'); wrapEl = $('wrap'); bar = $('editbar'); previewBar = $('previewbar');
+    if (!overlay || !stage || !wrapEl || !bar || !previewBar) return false;
     ctx = overlay.getContext('2d');
+    // P014 画板伪目标:点在非图片区域时标注进 boardT.store,坐标=画板布局 px
+    boardT = { imgEl: wrapEl, isBoard: true, bmp: null, natW: 0, natH: 0, store: new Store(), name: '' };
+    targets.set(wrapEl, boardT); order.push(wrapEl); // 首位:画板层压在最底
     buildToolbar();
     pop = document.createElement('div');
     pop.id = 'eb-pop';
@@ -269,10 +550,12 @@
   }
 
   /* -------- 工具下方的选项条:线宽(线条示意)/字号(A 大小)+ 常用色,即选即生效 -------- */
+  /* -------- 形状工具:选项条顶部再挂分类形状选择器(网格图标)+ 填充三态 -------- */
   function openPop(def, anchorBtn) {
     closePop();
     const kind = def.kind;
     pop._kind = kind;
+    pop.classList.toggle('shapes', def.id === 'shape');
     let html = '';
     TIERS[kind].forEach((w, i) => {
       const inner = kind === 'text'
@@ -281,6 +564,11 @@
       html += '<button class="tier' + (i === tierByKind[kind] ? ' on' : '') + '" data-t="' + i + '" title="' +
         (kind === 'text' ? '字号 ' + w + 'px' : '线宽 ' + w + 'px') + '">' + inner + '</button>';
     });
+    if (def.id === 'shape') {
+      const sd = shapeDef(curShape);
+      html += '<button class="fillbtn" data-fill title="切换填充(仅封闭形状生效)"' +
+        (sd && sd.fillable ? '' : ' disabled') + '>填充:' + FILL_LABEL[fillMode] + '</button>';
+    }
     html += '<span class="psp"></span>';
     if (kind !== 'mosaic') {
       COLORS.forEach((c, i) => {
@@ -290,6 +578,7 @@
       html += '<span class="phint">马赛克无颜色(采样画面像素)</span>';
     }
     pop.innerHTML = html;
+    if (def.id === 'shape') pop.insertBefore(buildShapePicker(), pop.firstChild);
     pop.style.display = 'flex';
     const r = anchorBtn.getBoundingClientRect();
     pop.style.left = Math.max(6, Math.min(r.left - 30, innerWidth - pop.offsetWidth - 8)) + 'px';
@@ -304,8 +593,71 @@
       applyColor(+b.dataset.c);
       refreshPop();
     }));
+    pop.querySelectorAll('.shp').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      curShape = b.dataset.shape;
+      const sd = shapeDef(curShape);
+      if (sd && !sd.fillable) fillMode = 'none';
+      refreshPop();
+    }));
+    const fb = pop.querySelector('[data-fill]');
+    if (fb) fb.addEventListener('click', (e) => { e.stopPropagation(); cycleFill(); refreshPop(); });
   }
-  function closePop() { if (pop) { pop.style.display = 'none'; pop.innerHTML = ''; } }
+  /** 形状选择器:按分类分组的网格,图标用形状自身画法实时渲染 */
+  function buildShapePicker() {
+    const box = document.createElement('div');
+    box.className = 'eb-shwrap';
+    const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+    let cat = null, grid = null;
+    for (const sd of P.SHAPES) {
+      if (sd.cat !== cat) {
+        cat = sd.cat;
+        const lab = document.createElement('div');
+        lab.className = 'eb-shlab'; lab.textContent = cat;
+        box.appendChild(lab);
+        grid = document.createElement('div');
+        grid.className = 'eb-shgrid';
+        box.appendChild(grid);
+      }
+      const b = document.createElement('button');
+      b.className = 'shp' + (sd.id === curShape ? ' on' : '');
+      b.dataset.shape = sd.id;
+      b.title = sd.label;
+      b.appendChild(shapeIcon(sd, dark));
+      grid.appendChild(b);
+    }
+    return box;
+  }
+  function shapeIcon(sd, dark) {
+    const dpr = window.devicePixelRatio || 1;
+    const cv = document.createElement('canvas');
+    cv.width = 24 * dpr; cv.height = 24 * dpr;
+    cv.style.width = '24px'; cv.style.height = '24px';
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    const st = { col: dark ? '#dde3ee' : '#44506a', lw: 1.5, fill: 'none' };
+    g.strokeStyle = st.col; g.fillStyle = st.col; g.lineWidth = st.lw;
+    const fn = SHAPE_DRAW[sd.id];
+    if (!fn) return cv;
+    if (sd.line) fn.line(g, 4, 12, 20, 12, st);
+    else fn(g, 4, 4, 16, 16, st);
+    return cv;
+  }
+  /** 填充三态循环:记为默认;选中封闭形状时同步生效(可撤销) */
+  function cycleFill() {
+    fillMode = FILL_MODES[(FILL_MODES.indexOf(fillMode) + 1) % FILL_MODES.length];
+    const a = selected && selected.ann;
+    if (!a || a.tool !== 'shape' || a.x0 !== undefined) return;
+    const sd = shapeDef(a.shape);
+    if (!sd || !sd.fillable) return;
+    const before = P.snap(a);
+    if ((a.fill || 'none') === fillMode) return;
+    a.fill = fillMode;
+    selected.t.store.edit(a, before);
+    requestRedraw();
+  }
+  function closePop() { if (pop) { pop.style.display = 'none'; pop.innerHTML = ''; pop.classList.remove('shapes'); } }
   function openPopFor(id) {
     const btn = bar && bar.querySelector('[data-tool="' + id + '"]');
     if (btn) openPop(toolDef(id), btn);
@@ -314,6 +666,13 @@
     if (!pop || pop.style.display !== 'flex') return;
     pop.querySelectorAll('.tier').forEach((x) => x.classList.toggle('on', +x.dataset.t === tierByKind[pop._kind]));
     pop.querySelectorAll('.pcolor').forEach((x) => x.classList.toggle('on', +x.dataset.c === colorIdx));
+    pop.querySelectorAll('.shp').forEach((x) => x.classList.toggle('on', x.dataset.shape === curShape));
+    const fb = pop.querySelector('[data-fill]');
+    if (fb) {
+      fb.textContent = '填充:' + FILL_LABEL[fillMode];
+      const sd = shapeDef(curShape);
+      fb.disabled = !(sd && sd.fillable);
+    }
   }
   /** 档位改动:记为默认值;有选中标注/正在输入文字时同步生效(可撤销) */
   function applyTier(kind, i) {
@@ -345,10 +704,11 @@
     selected.t.store.edit(a, before);
     requestRedraw();
   }
-  /** 选中标注时把它的颜色/线宽(字号)回显为当前档位 */
+  /** 选中标注时把它的颜色/线宽(字号)回显为当前档位;形状连同形状名/填充一起回显 */
   function syncFromAnn(a) {
     const kind = toolDef(a.tool).kind;
     if (a.color) { const ci = COLORS.indexOf(a.color); if (ci >= 0) colorIdx = ci; }
+    if (a.tool === 'shape') { curShape = a.shape; fillMode = a.fill || 'none'; }
     const arr = TIERS[kind];
     const v = kind === 'text' ? a.fs : a.w;
     if (v == null) return;
@@ -385,6 +745,17 @@
     targets.set(imgEl, t); order.push(imgEl);
     createImageBitmap(blob).then((bmp) => { t.bmp = bmp; t.natW = bmp.width; t.natH = bmp.height; requestRedraw(); });
   }
+  /** P014:从画板移除一张图(其标注随目标一起注销) */
+  function unmount(imgEl) {
+    const t = targets.get(imgEl);
+    if (!t) return;
+    if (selected && selected.t === t) select();
+    if (activeEl === imgEl) activeEl = null;
+    targets.delete(imgEl);
+    const i = order.indexOf(imgEl);
+    if (i > 0) order.splice(i, 1); // wrapEl 恒在 0 位,不动
+    requestRedraw();
+  }
   function targetOf(imgEl) { return targets.get(imgEl); }
 
   /* ---------------- 绘制 ---------------- */
@@ -392,8 +763,13 @@
     if (raf || !ctx) return;
     raf = requestAnimationFrame(() => { raf = 0; redraw(); });
   }
+  /** 目标的「原始像素」尺寸:画板伪目标恒等于当前布局尺寸(s=1) */
+  function natOf(t, rect) {
+    return t.isBoard ? { w: rect.width, h: rect.height } : { w: t.natW, h: t.natH };
+  }
   function viewOf(t) {
     const rect = t.imgEl.getBoundingClientRect();
+    if (t.isBoard) return { rect, natW: rect.width, natH: rect.height, bmp: null, s: 1 };
     return { rect, natW: t.natW, natH: t.natH, bmp: t.bmp, s: t.natW ? rect.width / t.natW : 0 };
   }
   function redraw() {
@@ -407,14 +783,14 @@
     ctx.clearRect(0, 0, w, h);
     for (const imgEl of order) {
       const t = targets.get(imgEl);
-      if (!t || !t.bmp || !t.store.anns.length) continue;
+      if (!t || !(t.bmp || t.isBoard) || !t.store.anns.length) continue;
       const view = viewOf(t);
       if (view.rect.bottom < 0 || view.rect.top > h || view.rect.right < 0 || view.rect.left > w) continue;
       for (const a of t.store.anns) drawAnn(ctx, a, view);
     }
     if (drag && drag.ann) {
       const t = targets.get(drag.imgEl);
-      if (t && t.bmp) drawAnn(ctx, drag.ann, viewOf(t));
+      if (t && (t.bmp || t.isBoard)) drawAnn(ctx, drag.ann, viewOf(t));
     }
     // 马赛克笔刷:跟随鼠标的圆圈光标(白圈+黑描边,任意底色可见),对标微信
     if (mode === 'edit' && tool === 'mosaic' && hoverPt && hoverPt.t.bmp) {
@@ -428,6 +804,7 @@
       ctx.beginPath(); ctx.arc(hoverPt.x, hoverPt.y, r, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
     }
+    if (CS.Edit && CS.Edit._boardChange) CS.Edit._boardChange(); // 画板层增删后通知宿主重算容器尺寸
   }
 
   function M(view) {
@@ -462,6 +839,14 @@
       path(c, a.pts, m); c.stroke();
     } else if (a.tool === 'mosaic') {
       paintMosaic(c, a, view, m);
+    } else if (a.tool === 'shape') {
+      const fn = SHAPE_DRAW[a.shape];
+      if (fn) {
+        const st = { col, lw: Math.max(1, m.v(a.w)), fill: a.fill || 'none' };
+        c.strokeStyle = col; c.fillStyle = col; c.lineWidth = st.lw;
+        if (a.x0 !== undefined) fn.line(c, m.x(a.x0), m.y(a.y0), m.x(a.x1), m.y(a.y1), st);
+        else fn(c, m.x(a.x), m.y(a.y), m.v(a.bw), m.v(a.bh), st);
+      }
     } else if (a.tool === 'text') {
       if (!a._mw) measureText(a);
       c.fillStyle = col;
@@ -473,9 +858,9 @@
       for (let i = 0; i < lines.length; i++) c.fillText(lines[i], m.x(a.x), m.y(a.y) + i * lh);
     }
     c.restore();
-    if (selected && selected.ann === a && mode === 'edit') drawSelection(c, a, m);
+    if (!view.export && selected && selected.ann === a && mode === 'edit') drawSelection(c, a, m);
   }
-  /** 选中态:方框/椭圆=虚线盒+8 把手;箭头=两端圆点;文字=实线盒(颜色与文字一致,单击即可拖) */
+  /** 选中态:方框/椭圆/形状=虚线盒+8 把手;箭头/线条=两端圆点;文字=实线盒(颜色与文字一致,单击即可拖) */
   function drawSelection(c, a, m) {
     c.save();
     const hs = P.handlePoints(a);
@@ -484,17 +869,14 @@
       c.strokeRect(m.x(a.x - 2), m.y(a.y - 2), m.v((a._mw || a.text.length * a.fs) + 4), m.v((a._mh || a.fs * 1.4) + 4));
     } else {
       c.strokeStyle = '#2f6fe4'; c.lineWidth = 1;
-      if (a.bw !== undefined) { c.setLineDash([4, 3]); c.strokeRect(m.x(a.x), m.y(a.y), m.v(a.bw), m.v(a.bh)); }
-      if (a.tool === 'pen' || a.tool === 'arrow') {
-        const bb = P.pathBBox(a.pts || [{ x: a.x0, y: a.y0 }, { x: a.x1, y: a.y1 }], a.w / 2);
-        c.setLineDash([4, 3]); c.strokeRect(m.x(bb.x), m.y(bb.y), m.v(bb.w), m.v(bb.h));
-      }
+      const bb = P.annBBox(a);
+      c.setLineDash([4, 3]);
+      c.strokeRect(m.x(bb.x), m.y(bb.y), m.v(bb.w), m.v(bb.h));
       for (const hd of hs) {
         c.setLineDash([]);
         c.fillStyle = '#fff'; c.strokeStyle = '#2f6fe4'; c.lineWidth = 1.2;
         if (hd.dir === 'p0' || hd.dir === 'p1') { c.beginPath(); c.arc(m.x(hd.x), m.y(hd.y), 4, 0, Math.PI * 2); c.fill(); c.stroke(); }
-        else c.fillRect(m.x(hd.x) - 3.5, m.y(hd.y) - 3.5, 7, 7);
-        if (a.bw !== undefined) c.strokeRect(m.x(hd.x) - 3.5, m.y(hd.y) - 3.5, 7, 7);
+        else { c.fillRect(m.x(hd.x) - 3.5, m.y(hd.y) - 3.5, 7, 7); c.strokeRect(m.x(hd.x) - 3.5, m.y(hd.y) - 3.5, 7, 7); }
       }
     }
     c.restore();
@@ -558,23 +940,35 @@
 
   /* ---------------- 指针交互 ---------------- */
   function mainTarget() {
-    const el = (activeEl && targets.get(activeEl)) ? activeEl : order[0];
-    return el && targets.get(el);
+    if (activeEl && targets.get(activeEl)) return targets.get(activeEl);
+    const el = order.find((x) => { const t = targets.get(x); return t && !t.isBoard; });
+    return el ? targets.get(el) : null;
   }
-  function setActive(el) { if (targets.has(el)) activeEl = el; }
-  function eventImg(e) {
-    for (const el of order) {
-      const t = targets.get(el);
-      if (!t || !t.bmp) continue;
-      const r = el.getBoundingClientRect();
+  function setActive(el) { if (targets.has(el) && !targets.get(el).isBoard) activeEl = el; }
+  /** 命中的目标:先图片(后挂载优先),最后画板(点空白处=画板层) */
+  function targetAt(e) {
+    let board = null;
+    for (let i = order.length - 1; i >= 0; i--) {
+      const t = targets.get(order[i]);
+      if (!t || !(t.bmp || t.isBoard)) continue;
+      const r = t.imgEl.getBoundingClientRect();
       if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-        return { t, rect: r, pt: P.screenToImg(e.clientX, e.clientY, r, t.natW, t.natH) };
+        if (t.isBoard) { board = { t, rect: r }; continue; } // 画板兜底,图片优先
+        const nat = natOf(t, r);
+        return { t, rect: r, pt: P.screenToImg(e.clientX, e.clientY, r, nat.w, nat.h) };
       }
+    }
+    if (board) {
+      const nat = natOf(board.t, board.rect);
+      board.pt = P.screenToImg(e.clientX, e.clientY, board.rect, nat.w, nat.h);
+      return board;
     }
     return null;
   }
   function hitTest(t, x, y) {
-    const slop = 8 / (t.imgEl.getBoundingClientRect().width / t.natW || 1);
+    const r = t.imgEl.getBoundingClientRect();
+    const nat = natOf(t, r);
+    const slop = 8 / (r.width / nat.w || 1);
     const hs = selected && selected.t === t ? P.handlePoints(selected.ann) : [];
     for (const hd of hs) {
       if (Math.hypot(x - hd.x, y - hd.y) <= slop * 0.9) return { kind: 'resize', hd };
@@ -598,9 +992,14 @@
   function onPointerDown(e) {
     if (mode !== 'edit' || e.button !== 0) return;
     if ((bar && bar.contains(e.target)) || (pop && pop.contains(e.target))) { return; }
-    const hit = eventImg(e);
+    const hit = targetAt(e);
     if (!hit) { commitText(); select(); requestRedraw(); return; }
     const target = hit.t;
+    if (target.isBoard && toolDef(tool).kind === 'mosaic') { // 画板空白处无像素可采样
+      commitText(); select(); requestRedraw();
+      if (CS.Edit.onHint) CS.Edit.onHint('马赛克只能涂抹在图片上');
+      return;
+    }
     const hitRes = hitTest(target, hit.pt.x, hit.pt.y);
     if (hitRes && hitRes.kind === 'resize') {
       commitText();
@@ -613,7 +1012,7 @@
       drag = { mode: 'move', imgEl: target.imgEl, ann: hitRes.a, before: P.snap(hitRes.a), lastX: hit.pt.x, lastY: hit.pt.y, moved: false };
       requestRedraw(); e.preventDefault(); return;
     }
-    // 空白:新画
+    // 空白:新画(图片上=图片标注;画板空白=画板标注)
     if (tool === 'text') {
       if (textInput) { commitText(); requestRedraw(); return; } // 先定稿为最终态,不连锁开新输入框
       if (selected) { select(); requestRedraw(); return; } // 有选中框时先取消选中(box 消失)
@@ -622,29 +1021,20 @@
     commitText(); select();
     drag = {
       mode: 'draw', imgEl: target.imgEl, tool, kind: toolDef(tool).kind, shift: e.shiftKey,
+      shape: curShape,
       x0: hit.pt.x, y0: hit.pt.y, x1: hit.pt.x, y1: hit.pt.y,
       pts: [{ x: hit.pt.x, y: hit.pt.y }],
       ann: null
     };
     e.preventDefault();
   }
-  function imgPoint(e) {
-    for (const el of order) {
-      const t = targets.get(el);
-      if (!t || !t.bmp) continue;
-      const r = el.getBoundingClientRect();
-      const s = r.width / t.natW || 1;
-      return P.screenToImg(e.clientX, e.clientY, r, t.natW, t.natH);
-    }
-    return null;
-  }
   function onPointerMove(e) {
-    const p0 = imgPoint(e);
     if (mode === 'edit' && tool === 'mosaic') trackBrush(e); // 涂抹中也要跟手
-    if (!drag) { updateHoverCursor(e, p0); return; }
+    if (!drag) { updateHoverCursor(e); return; }
     const t = targets.get(drag.imgEl); if (!t) return;
     const rect = t.imgEl.getBoundingClientRect();
-    const p = P.screenToImg(e.clientX, e.clientY, rect, t.natW, t.natH);
+    const nat = natOf(t, rect);
+    const p = P.screenToImg(e.clientX, e.clientY, rect, nat.w, nat.h);
     if (drag.mode === 'draw') {
       drag.x1 = p.x; drag.y1 = p.y; drag.shift = e.shiftKey;
       if (drag.kind === 'mosaic' || drag.tool === 'pen' || drag.tool === 'highlight') {
@@ -654,7 +1044,7 @@
       drag.ann = buildDragAnn();
     } else if (drag.mode === 'resize') {
       const a = drag.ann;
-      if (a.tool === 'arrow') {
+      if (a.x0 !== undefined) { // 箭头/线条类:端点拖拽
         if (drag.hd.dir === 'p0') { a.x0 = p.x; a.y0 = p.y; } else { a.x1 = p.x; a.y1 = p.y; }
       } else {
         const r = P.resizeRect({ x: drag.before.x, y: drag.before.y, bw: drag.before.bw, bh: drag.before.bh }, drag.hd.dir, p.x, p.y, e.shiftKey);
@@ -682,19 +1072,22 @@
     hoverPt = t0 ? { x: e.clientX, y: e.clientY, t: t0 } : null;
     requestRedraw();
   }
-  function updateHoverCursor(e, p0) {
+  function updateHoverCursor(e) {
     let cur = mode === 'edit' ? 'crosshair' : '';
     if (mode === 'edit' && tool === 'mosaic') {
       cur = hoverPt ? 'none' : 'crosshair'; // 圆圈光标取代系统光标
-    } else if (mode === 'edit' && p0) {
-      const t0 = firstTargetAt(e);
-      if (t0) {
+    } else if (mode === 'edit') {
+      const hit = targetAt(e);
+      if (hit) {
+        const t0 = hit.t, p0 = hit.pt;
+        const nat = natOf(t0, hit.rect);
+        const slop = 8 / (hit.rect.width / nat.w || 1);
         const hs = selected && selected.t === t0 ? P.handlePoints(selected.ann) : [];
-        const slop = 8 / (t0.imgEl.getBoundingClientRect().width / t0.natW || 1);
         for (const hd of hs) if (Math.hypot(p0.x - hd.x, p0.y - hd.y) <= slop * 0.9) { cur = hd.c; break; }
         if (cur === 'crosshair') {
           for (let i = t0.store.anns.length - 1; i >= 0; i--) {
-            if (P.hitAnn(t0.store.anns[i], p0.x, p0.y, slop)) { cur = 'move'; break; }
+            const a = t0.store.anns[i];
+            if (a.tool !== 'mosaic' && P.hitAnn(a, p0.x, p0.y, slop)) { cur = 'move'; break; }
           }
         }
       }
@@ -704,10 +1097,11 @@
       const st = document.getElementById('stage'); if (st) st.style.cursor = cur || '';
     }
   }
+  /** 仅图片目标命中(马赛克笔刷用;画板层不算) */
   function firstTargetAt(e) {
     for (const el of order) {
       const t = targets.get(el);
-      if (!t || !t.bmp) continue;
+      if (!t || !t.bmp || t.isBoard) continue;
       const r = el.getBoundingClientRect();
       if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return t;
     }
@@ -729,10 +1123,10 @@
   }
   function onDblClick(e) {
     if (mode !== 'edit') return;
-    const t = firstTargetAt(e); if (!t || !t.bmp) return;
-    const rect = t.imgEl.getBoundingClientRect();
-    const p = P.screenToImg(e.clientX, e.clientY, rect, t.natW, t.natH);
-    const slop = 8 / (rect.width / t.natW || 1);
+    const hit = targetAt(e); if (!hit) return;
+    const t = hit.t, p = hit.pt;
+    const nat = natOf(t, hit.rect);
+    const slop = 8 / (hit.rect.width / nat.w || 1);
     for (let i = t.store.anns.length - 1; i >= 0; i--) {
       const a = t.store.anns[i];
       if (a.tool === 'text' && P.hitAnn(a, p.x, p.y, slop)) {
@@ -756,6 +1150,23 @@
       if (drag.shift) ({ x1, y1 } = P.snapArrow(drag.x0, drag.y0, drag.x1, drag.y1, 15));
       if (Math.hypot(x1 - drag.x0, y1 - drag.y0) < 3) return null;
       return Object.assign(base, { x0: drag.x0, y0: drag.y0, x1, y1, w: curWidth('shape') });
+    }
+    if (drag.tool === 'shape') {
+      const sd = shapeDef(drag.shape || curShape);
+      if (!sd) return null;
+      if (sd.line) {
+        let { x1, y1 } = drag;
+        if (drag.shift && sd.id !== 'elbow') ({ x1, y1 } = P.snapArrow(drag.x0, drag.y0, x1, y1, 15));
+        if (Math.hypot(x1 - drag.x0, y1 - drag.y0) < 3) return null;
+        return { tool: 'shape', shape: sd.id, color: curColor(), x0: drag.x0, y0: drag.y0, x1, y1, w: curWidth('shape') };
+      }
+      const r = P.normRect(drag.x0, drag.y0, drag.x1, drag.y1, drag.shift);
+      if (r.w < 2 && r.h < 2) return null;
+      return {
+        tool: 'shape', shape: sd.id, color: curColor(),
+        x: r.x, y: r.y, bw: r.w, bh: r.h, w: curWidth('shape'),
+        fill: sd.fillable ? fillMode : 'none'
+      };
     }
     if (drag.tool === 'pen') {
       if (drag.pts.length < 2) return null;
@@ -800,7 +1211,7 @@
     if (!textInput) return;
     const { inp, t, pt, fs, color } = textInput;
     const rect = t.imgEl.getBoundingClientRect();
-    const k = rect.width / t.natW || 1;
+    const k = rect.width / natOf(t, rect).w || 1;
     inp.style.left = (rect.left + pt.x * k) + 'px';
     inp.style.top = (rect.top + pt.y * k) + 'px';
     inp.style.color = color;
@@ -810,7 +1221,7 @@
     if (!textInput) return;
     const { inp, t, fs } = textInput;
     const rect = t.imgEl.getBoundingClientRect();
-    const k = rect.width / t.natW || 1;
+    const k = rect.width / natOf(t, rect).w || 1;
     if (!measCtx) { measCtx = document.createElement('canvas').getContext('2d'); }
     measCtx.font = Math.max(6, fs * k) + 'px system-ui, "PingFang SC", sans-serif';
     let w = 0;
@@ -827,8 +1238,7 @@
     if (existing) {
       delete existing._editing;
       if (!v) { // 清空提交 = 删除该文字(可撤销)
-        const i = t.store.anns.indexOf(existing);
-        if (i >= 0) { t.store.stack.push({ t: 'del', item: existing, index: i }); t.store.redone.length = 0; t.store.anns.splice(i, 1); }
+        t.store.del(existing);
         if (selected && selected.ann === existing) select();
       } else {
         const before = P.snap(existing);
@@ -860,10 +1270,28 @@
     a._mh = lines.length * a.fs * 1.4;
   }
 
-  /* ---------------- 栈操作 ---------------- */
+  /* ---------------- 栈操作:跨目标按操作 seq 选最新者(P014 画板层与图片混排) ---------------- */
   function activeTargets() { return order.map((el) => targets.get(el)).filter(Boolean); }
-  function doUndo() { for (const t of activeTargets()) if (t.store.undo()) break; requestRedraw(); }
-  function doRedo() { for (const t of activeTargets()) if (t.store.redo()) break; requestRedraw(); }
+  function pickTop(getter, cmp) {
+    let best = null;
+    for (const t of activeTargets()) {
+      const arr = getter(t.store);
+      if (!arr.length) continue;
+      const top = arr[arr.length - 1];
+      if (!best || cmp(top, best.top)) best = { t, top };
+    }
+    return best && best.t;
+  }
+  function doUndo() {
+    const t = pickTop((s) => s.stack, (a, b) => (a.seq || 0) > (b.seq || 0));
+    if (t) t.store.undo();
+    requestRedraw();
+  }
+  function doRedo() { // 撤销是 seq 降序弹出的,重做按 seq 升序补回
+    const t = pickTop((s) => s.redone, (a, b) => (a.seq || 0) < (b.seq || 0));
+    if (t) t.store.redo();
+    requestRedraw();
+  }
   function doReset() { let hit = false; for (const t of activeTargets()) if (t.store.clearAll()) hit = true; if (hit) requestRedraw(); }
 
   /* ---------------- 键盘 ---------------- */
@@ -875,9 +1303,9 @@
       if (meta && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
       if (meta && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); doRedo(); return; }
       if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); setMode('preview'); return; }
-      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); if (selected) { const a = selected.ann; const tt = selected.t; const i = tt.store.anns.indexOf(a); if (i >= 0) { tt.store.stack.push({ t: 'del', item: a, index: i }); tt.store.redone.length = 0; tt.store.anns.splice(i, 1); } select(); } else doUndo(); requestRedraw(); return; }
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); if (selected) { const a = selected.ann; const tt = selected.t; tt.store.del(a); select(); } else doUndo(); requestRedraw(); return; }
       if (meta && e.key === 'c') return; // 让宿主复制
-      if (/^[1-7]$/.test(e.key)) {
+      if (/^[1-8]$/.test(e.key)) {
         const td = TOOLS.find((x) => x.key === e.key);
         if (td) { setTool(td.id); openPopFor(td.id); }
         return;
@@ -896,9 +1324,28 @@
     c.width = t.natW; c.height = t.natH;
     const cc = c.getContext('2d');
     cc.drawImage(t.bmp, 0, 0);
-    const view = { rect: { left: 0, top: 0, width: t.natW }, natW: t.natW, natH: t.natH, bmp: t.bmp, s: 1 };
+    const view = { rect: { left: 0, top: 0, width: t.natW }, natW: t.natW, natH: t.natH, bmp: t.bmp, s: 1, export: true };
     for (const a of t.store.anns) { a._pal = null; drawAnn(cc, a, view); }
     return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('合成失败'))), 'image/png'));
+  }
+
+  /* -------- P014 画板标注层:坐标=画板布局 px;导出按 scale(dpr)重绘,与卡片合成同坐标系 -------- */
+  function hasBoardAnns() { return !!(boardT && boardT.store.anns.length); }
+  function boardAnnsBBox() {
+    if (!hasBoardAnns()) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const a of boardT.store.anns) {
+      const bb = P.annBBox(a);
+      if (bb.x < x0) x0 = bb.x; if (bb.y < y0) y0 = bb.y;
+      if (bb.x + bb.w > x1) x1 = bb.x + bb.w; if (bb.y + bb.h > y1) y1 = bb.y + bb.h;
+    }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+  /** 把画板标注层画到导出画布:scale = 导出分辨率 / 画板布局 px(即 dpr) */
+  function drawBoardLayer(c2d, scale) {
+    if (!hasBoardAnns()) return;
+    const view = { rect: { left: 0, top: 0, width: 0 }, s: scale, bmp: null, export: true };
+    for (const a of boardT.store.anns) drawAnn(c2d, a, view);
   }
 
   function emit(kind) {
@@ -906,14 +1353,17 @@
   }
 
   CS.Edit = {
-    mount, targetOf, exportBlob, setMode, setActive, get mode() { return mode; },
+    mount, unmount, targetOf, exportBlob, setMode, setActive, get mode() { return mode; },
     redraw: requestRedraw,
+    hasBoardAnns, boardAnnsBBox, drawBoardLayer,
     modalOpen: null, // preview.js 赋值为导出弹窗状态查询,打开时屏蔽编辑器快捷键
+    onHint: null,    // preview.js 赋值为 toast,编辑器内轻提示(如马赛克仅限图片)
     setHasMain(v) {
       hasMain = !!v;
       const p = document.getElementById('previewbar');
       if (p) p.classList.toggle('no-main', !v);
     },
-    _emit: null
+    _emit: null,
+    _boardChange: null // preview.js 赋值为 relayout,画板层变化时重算容器尺寸
   };
 })();

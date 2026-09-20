@@ -16,21 +16,33 @@
     <div id="wrap"></div>
   </main>
 
-  <!-- 右下角控制面板(P012,预览态唯一入口):信息 + 缩放 + 编辑/复制/下载;无顶栏不遮页面 -->
+  <!-- 右下角控制面板(P012 布局,P014 增强):信息 + 无级缩放 + 画板操作 + 编辑/复制/下载 -->
   <div id="previewbar" class="no-main">
     <div id="info" class="pb-info">加载中…</div>
-    <div class="pb-row">
-      <button id="zoom-out" title="缩小">－</button>
-      <button id="zoom-fit">适应</button>
-      <button id="zoom-100">100%</button>
-      <button id="zoom-in" title="放大">＋</button>
-      <span id="zoom-label" class="info"></span>
+    <div class="pb-row pb-main pb-zoom">
+      <button id="zoom-out" title="缩小(×0.9 细调)">－</button>
+      <input id="zoom-range" type="range" min="5" max="400" step="1" value="100" title="拖动无级缩放(5%–400%)">
+      <button id="zoom-in" title="放大(×1.1 细调)">＋</button>
+      <span class="zoom-num"><input id="zoom-num" type="number" min="5" max="400" step="1" value="100" title="直接输入缩放百分比,回车生效">%</span>
+      <button id="zoom-fit" title="适应窗口宽度">适应</button>
+      <button id="zoom-100" title="实际像素">100%</button>
     </div>
-    <div class="pb-row">
-      <button id="btn-edit" class="primary" title="像微信一样标注(快捷键 E)">✎ 编辑</button>
-      <button id="btn-copy" title="复制当前呈现(含标注)到剪贴板">复制</button>
+    <div class="pb-row pb-board">
+      <button id="btn-addimg" title="往画板继续添加图片(也可 Ctrl+V 直接粘贴)">＋ 图片</button>
+      <button id="btn-blank" title="新建一块空白画布,从零作画(非破坏,追加为卡片)">▢ 空白画布</button>
+      <button id="btn-bg" title="画板背景:透明/白板/常用色/自定义,导出带底色">🎨 背景</button>
+    </div>
+    <div class="pb-row pb-main">
+      <button id="btn-edit" class="primary" title="像微信一样标注(快捷键 E);空白处也能写字画形状">✎ 编辑</button>
+      <button id="btn-copy" title="复制当前呈现(含标注与画板层)到剪贴板">复制</button>
       <button id="btn-download" title="打开导出弹窗:剪裁/转格式/压缩/缩放,看清效果再下载">下载</button>
     </div>
+  </div>
+  <input id="fi-add" type="file" accept="image/*" multiple hidden>
+
+  <!-- 画板背景选择弹层(P014):常用色 + 自定义取色器 -->
+  <div id="bgpop" hidden>
+    <label class="bg-custom">自定义 <input id="bg-custom" type="color" value="#ffffff" title="自定义颜色"></label>
   </div>
 
   <!-- 操作提示(P012):底部居中轻提示,自动消失不干扰 -->
