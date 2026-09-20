@@ -6,13 +6,7 @@ body {
 }
 @media (prefers-color-scheme: dark) {
   body { color: #dde3ee; background: #101318; }
-  header { background: #171a21; border-color: #2a3040; }
 }
-header {
-  display: flex; justify-content: space-between; align-items: center; gap: 12px;
-  padding: 8px 14px; background: #fff; border-bottom: 1px solid #d6dbe4; flex-wrap: wrap;
-}
-header .left, header .right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .info { font-size: 12px; opacity: .7; }
 .sep { width: 1px; height: 20px; background: currentColor; opacity: .2; margin: 0 4px; }
 button {
@@ -40,7 +34,8 @@ button:hover { filter: brightness(1.05); }
   box-shadow: 0 1px 6px rgba(0,0,0,.18);
 }
 .seg-list { display: flex; flex-direction: column; gap: 12px; }
-.seg-item img { max-width: 100%; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
+.seg-item img { max-width: 100%; box-shadow: 0 1px 6px rgba(0,0,0,.18); cursor: pointer; }
+.seg-item img.sel { outline: 2px solid #2f6fe4; outline-offset: 1px; }
 .seg-item .cap { font-size: 12px; opacity: .7; margin-bottom: 4px; }
 
 /* ── P007 编辑器 ───────────────────────────────── */
@@ -76,11 +71,28 @@ button:hover { filter: brightness(1.05); }
   resize: none; overflow: hidden; white-space: pre; margin: 0;
 }
 #previewbar {
-  position: fixed; right: 18px; bottom: 18px; z-index: 65; display: none; gap: 8px;
+  position: fixed; right: 18px; bottom: 18px; z-index: 65;
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
   background: #fff; border: 1px solid #d6dbe4; border-radius: 12px; padding: 8px 10px;
-  box-shadow: 0 4px 18px rgba(0,0,0,.2);
+  box-shadow: 0 4px 18px rgba(0,0,0,.2); max-width: min(430px, 92vw);
 }
+#previewbar .pb-row { display: flex; gap: 8px; align-items: center; }
+#previewbar .pb-info { font-size: 12px; opacity: .75; text-align: right; word-break: break-all; }
+#previewbar.no-main .pb-row { display: none; }
 #previewbar button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+/* 操作提示 toast(P012):底部居中滑入,自动消失 */
+#toasts {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 120;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none;
+}
+.toast {
+  background: rgba(20,26,38,.92); color: #fff; padding: 8px 18px; border-radius: 999px;
+  font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.28); white-space: nowrap; max-width: 80vw;
+  overflow: hidden; text-overflow: ellipsis;
+  opacity: 0; transform: translateY(10px); transition: opacity .25s, transform .25s;
+}
+.toast.show { opacity: 1; transform: none; }
+.toast.err { background: #b3312d; }
 /* ── P010 导出弹窗 ──────────────────────────── */
 #dlmodal[hidden] { display: none; }
 #dlmodal .dlg-mask { position: fixed; inset: 0; z-index: 90; background: rgba(10, 14, 22, .45); }

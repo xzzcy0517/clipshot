@@ -6,20 +6,6 @@
   <link rel="stylesheet" href="preview.css">
 </head>
 <body>
-  <header>
-    <div class="left">
-      <strong>ClipShot 预览</strong>
-      <span id="info" class="info">加载中…</span>
-    </div>
-    <div class="right">
-      <button id="zoom-out" title="缩小">－</button>
-      <button id="zoom-fit">适应宽度</button>
-      <button id="zoom-100">100%</button>
-      <button id="zoom-in" title="放大">＋</button>
-      <span id="zoom-label" class="info"></span>
-    </div>
-  </header>
-
   <!-- 编辑态工具栏(P007):默认隐藏,由 edit.js 填充 -->
   <div id="editbar"></div>
 
@@ -30,12 +16,25 @@
     <div id="wrap"></div>
   </main>
 
-  <!-- 预览态动作栏:想编辑才点「编辑」,否则复制/下载直接走 -->
-  <div id="previewbar">
-    <button id="btn-edit" class="primary" title="像微信一样标注(快捷键 E)">✎ 编辑</button>
-    <button id="btn-copy" title="复制当前呈现(含标注)到剪贴板">复制</button>
-    <button id="btn-download" title="打开导出弹窗:剪裁/转格式/压缩/缩放,看清效果再下载">下载</button>
+  <!-- 右下角控制面板(P012,预览态唯一入口):信息 + 缩放 + 编辑/复制/下载;无顶栏不遮页面 -->
+  <div id="previewbar" class="no-main">
+    <div id="info" class="pb-info">加载中…</div>
+    <div class="pb-row">
+      <button id="zoom-out" title="缩小">－</button>
+      <button id="zoom-fit">适应</button>
+      <button id="zoom-100">100%</button>
+      <button id="zoom-in" title="放大">＋</button>
+      <span id="zoom-label" class="info"></span>
+    </div>
+    <div class="pb-row">
+      <button id="btn-edit" class="primary" title="像微信一样标注(快捷键 E)">✎ 编辑</button>
+      <button id="btn-copy" title="复制当前呈现(含标注)到剪贴板">复制</button>
+      <button id="btn-download" title="打开导出弹窗:剪裁/转格式/压缩/缩放,看清效果再下载">下载</button>
+    </div>
   </div>
+
+  <!-- 操作提示(P012):底部居中轻提示,自动消失不干扰 -->
+  <div id="toasts"></div>
 
   <!-- 导出弹窗(P010):左原图右效果,滑杆即调即看;主按钮标明格式与大小 -->
   <div id="dlmodal" hidden>

@@ -202,6 +202,7 @@
   let colorIdx = 0;
   const targets = new Map(); // imgEl → {imgEl, blob, bmp, natW, natH, store, name}
   const order = [];
+  let activeEl = null; // P012:预览页选中图,导出/复制默认作用于它(回退首张)
   let drag = null;
   let textInput = null;
   let selected = null;
@@ -371,7 +372,7 @@
     mode = m;
     document.body.classList.toggle('editing', m === 'edit');
     if (bar) bar.style.display = m === 'edit' ? 'flex' : 'none';
-    if (previewBar) previewBar.style.display = (m !== 'edit' && hasMain) ? 'flex' : 'none';
+    // previewbar 显隐交给 CSS:body.editing 隐藏;无主图时 .no-main 只留信息行
     if (m === 'edit') { setTool(tool); openPopFor(tool); }
     else { commitText(); closePop(); drag = null; hoverPt = null; select(); }
     requestRedraw();
@@ -556,7 +557,11 @@
   }
 
   /* ---------------- 指针交互 ---------------- */
-  function mainTarget() { const el = order[0]; return el && targets.get(el); }
+  function mainTarget() {
+    const el = (activeEl && targets.get(activeEl)) ? activeEl : order[0];
+    return el && targets.get(el);
+  }
+  function setActive(el) { if (targets.has(el)) activeEl = el; }
   function eventImg(e) {
     for (const el of order) {
       const t = targets.get(el);
@@ -901,13 +906,13 @@
   }
 
   CS.Edit = {
-    mount, targetOf, exportBlob, setMode, get mode() { return mode; },
+    mount, targetOf, exportBlob, setMode, setActive, get mode() { return mode; },
     redraw: requestRedraw,
     modalOpen: null, // preview.js 赋值为导出弹窗状态查询,打开时屏蔽编辑器快捷键
     setHasMain(v) {
       hasMain = !!v;
       const p = document.getElementById('previewbar');
-      if (p && mode === 'preview') p.style.display = v ? 'flex' : 'none';
+      if (p) p.classList.toggle('no-main', !v);
     },
     _emit: null
   };

@@ -12,9 +12,11 @@
 
   let meta = null;
   let currentBlob = null;   // 主图原始 blob(未编辑时导出直通它)
-  let scale = 1;            // 1 = 页面的 CSS 尺寸(设备像素 / dpr)
-  let imgEl = null;
-  let naturalW = 0, naturalH = 0; // 设备像素
+  let imgEl = null;         // 主图(单图/合成图);纯多图列表时为 null
+  let naturalW = 0, naturalH = 0; // 主图设备像素
+  let activeImg = null;     // P012:当前选中图,缩放/复制/下载都作用于它
+  const scales = new Map(); // img → 缩放比(1 = 设备像素 / dpr 的 CSS 尺寸)
+  const blobOf = new Map(); // img → 原始 blob(主图与列表项)
 
   function fail(text) {
     $('info').textContent = '';
@@ -104,8 +106,10 @@
     }
     send({ type: CS.MSG.IMG_DONE, jobId }).catch(() => {});
     $('wrap').appendChild(list);
-    $('info').textContent = `共 ${m.items.length} 张图片,每张可独立「编辑 / 复制 / 下载」`;
-    // 编辑态工具栏的复制/下载作用于第一张(mainTarget),文件名/格式从这里兜底
+    Edit.setHasMain(true);
+    $('info').textContent = '共 ' + m.items.length + ' 张图片,点击选中后用右下角面板操作';
+    if (m.items.length > 1) toast('共 ' + m.items.length + ' 张图片,点选一张即可编辑/复制/下载');
+    // 文件名兜底(选中后由 selectImg 逐张刷新信息行)
     meta = { name: m.items[0].name, mime: m.items[0].mime, notes: [], widthPx: m.items[0].widthPx, heightPx: m.items[0].heightPx };
   }
 
@@ -116,12 +120,31 @@
     imgEl.src = url;
     imgEl.onload = () => {
       naturalW = imgEl.naturalWidth; naturalH = imgEl.naturalHeight;
+      blobOf.set(imgEl, blob);
       renderInfo();
-      zoomFit();
       Edit.mount(imgEl, blob, meta.name);
+      scales.set(imgEl, fitScaleOf(imgEl));
+      selectImg(imgEl);
       Edit.setHasMain(true);
     };
     $('wrap').appendChild(imgEl);
+  }
+
+  /** P012:选中一张图(单图恒为唯一选中),右下面板的缩放/复制/下载作用于它 */
+  function selectImg(img) {
+    if (!img) return;
+    activeImg = img;
+    if (Edit.setActive) Edit.setActive(img);
+    document.querySelectorAll('.seg-item img.sel').forEach((x) => x.classList.remove('sel'));
+    if (img.closest('.seg-item')) img.classList.add('sel');
+    const t = Edit.targetOf(img);
+    const blob = blobOf.get(img);
+    const bits = [];
+    if (t && t.name) bits.push(t.name);
+    if (img.naturalWidth) bits.push(img.naturalWidth + ' × ' + img.naturalHeight + ' px');
+    if (blob) bits.push(fmtMime(blob.type) + ' · ' + fmtBytes(blob.size));
+    if (bits.length) $('info').textContent = bits.join(' · ');
+    if (img.naturalWidth) applyScale();
   }
 
   /**
@@ -161,7 +184,8 @@
         list.appendChild(item);
       }
       $('wrap').appendChild(list);
-      addNote('整图超出浏览器画布上限,已分 ' + vols.length + ' 卷;每卷可独立「编辑」,按卷序排列即整页');
+      Edit.setHasMain(true);
+      addNote('整图超出浏览器画布上限,已分 ' + vols.length + ' 卷;点选一卷,右下角面板即可编辑/复制/下载,按卷序排列即整页');
     } catch (e) {
       // 回退:分段展示 + 逐段下载
       $('info').textContent = '图片超出画布上限,按分段展示';
@@ -171,40 +195,30 @@
         list.appendChild(buildSegItem(`第 ${i + 1} / ${blobs.length} 段`, blob, dotName(meta.name, '-' + (i + 1))));
       });
       $('wrap').appendChild(list);
+      Edit.setHasMain(true);
       currentBlob = blobs[0];
-      addNote('整图超出浏览器画布限制,已按分段展示;每段可独立「编辑」与下载');
+      addNote('整图超出浏览器画布限制,已按分段展示;点选一段,右下角面板即可编辑/复制/下载');
     }
   }
 
-  /** 分卷/分段/上传条目:说明 + 编辑/复制/下载该张(导出所见即所得,下载走格式面板) */
+  /** 分卷/分段/上传条目:说明行 + 图(P012 起条目不再自带按钮,点图选中,右下面板统一操作) */
   function buildSegItem(label, blob, filename) {
     const item = document.createElement('div');
     item.className = 'seg-item';
     const cap = document.createElement('div');
     cap.className = 'cap';
-    cap.textContent = label + ' ';
-    const eb = document.createElement('button');
-    eb.textContent = '编辑';
-    eb.addEventListener('click', () => Edit.setMode('edit'));
-    const cp = document.createElement('button');
-    cp.textContent = '复制';
-    cp.addEventListener('click', async () => {
-      const img = item.querySelector('img');
-      const edited = await Edit.exportBlob(img).catch(() => null);
-      copyPng(edited || blob);
-    });
-    const dl = document.createElement('button');
-    dl.textContent = '下载';
-    dl.title = '打开导出弹窗:转格式/压缩/缩放,看清效果再下载';
-    dl.addEventListener('click', async () => {
-      const img = item.querySelector('img');
-      const edited = await Edit.exportBlob(img).catch(() => null);
-      openExport(edited || blob, edited ? asPng(dotName(filename, '-标注')) : filename);
-    });
-    cap.appendChild(eb); cap.appendChild(cp); cap.appendChild(dl);
+    cap.textContent = label;
     const img = new Image();
+    img.title = '点击选中,用右下角面板编辑/复制/下载';
     img.src = URL.createObjectURL(blob);
-    img.onload = () => Edit.mount(img, blob, filename);
+    img.onload = () => {
+      blobOf.set(img, blob);
+      Edit.mount(img, blob, filename);
+      scales.set(img, Math.min(1, fitScaleOf(img))); // 初始适应容器,小图不放大
+      applyImg(img);
+      if (!activeImg) selectImg(img);
+    };
+    img.addEventListener('click', () => { if (Edit.mode !== 'edit') selectImg(img); });
     item.appendChild(cap); item.appendChild(img);
     return item;
   }
@@ -243,23 +257,37 @@
   }
 
   /* ---------------- 缩放 ---------------- */
-  function applyScale() {
-    if (!imgEl) return;
+  /** 把 img 的缩放比落到样式(明确宽度后须摘掉 max-width:100%,否则放大不生效) */
+  function applyImg(img) {
     const dpr = window.devicePixelRatio || 1;
-    imgEl.style.width = Math.round(naturalW / dpr * scale) + 'px';
-    $('zoom-label').textContent = Math.round(scale * 100) + '%';
+    img.style.maxWidth = 'none';
+    img.style.width = Math.round(img.naturalWidth / dpr * (scales.get(img) || 1)) + 'px';
+  }
+  function curScale() { return scales.get(activeImg) || 1; }
+  function fitScaleOf(img) {
+    const dpr = window.devicePixelRatio || 1;
+    return ($('stage').clientWidth - 32) / (img.naturalWidth / dpr);
+  }
+  function applyScale() {
+    if (!activeImg || !activeImg.naturalWidth) return;
+    applyImg(activeImg);
+    $('zoom-label').textContent = Math.round(curScale() * 100) + '%';
     Edit.redraw();
   }
-  function zoomFit() { scale = ($('stage').clientWidth - 32) / (naturalW / (window.devicePixelRatio || 1)); applyScale(); }
-  $('zoom-in').addEventListener('click', () => { scale = Math.min(4, scale * 1.25); applyScale(); });
-  $('zoom-out').addEventListener('click', () => { scale = Math.max(0.05, scale / 1.25); applyScale(); });
-  $('zoom-100').addEventListener('click', () => { scale = 1; applyScale(); });
-  $('zoom-fit').addEventListener('click', zoomFit);
+  function setScale(img, s) {
+    if (!img || !img.naturalWidth) return;
+    scales.set(img, s);
+    if (img === activeImg) applyScale();
+    else { applyImg(img); Edit.redraw(); }
+  }
+  $('zoom-in').addEventListener('click', () => setScale(activeImg, Math.min(4, curScale() * 1.25)));
+  $('zoom-out').addEventListener('click', () => setScale(activeImg, Math.max(0.05, curScale() / 1.25)));
+  $('zoom-100').addEventListener('click', () => setScale(activeImg, 1));
+  $('zoom-fit').addEventListener('click', () => setScale(activeImg, fitScaleOf(activeImg)));
   $('stage').addEventListener('wheel', (e) => {
     if (!e.ctrlKey) return;
     e.preventDefault();
-    scale = Math.max(0.05, Math.min(4, scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
-    applyScale();
+    setScale(activeImg, Math.max(0.05, Math.min(4, curScale() * (e.deltaY < 0 ? 1.1 : 1 / 1.1))));
   }, { passive: false });
 
   /* ---------------- 下载 / 复制(所见即所得) ---------------- */
@@ -429,7 +457,7 @@
     const ctx0 = dlgCtx;
     if (!ctx0 || !ctx0.out) return;
     downloadBlob(ctx0.out.blob, ctx0.outName);
-    flash('已开始下载:' + ctx0.outName);
+    toast('已开始下载:' + ctx0.outName);
     closeExport();
   });
   // 弹窗内按键不外泄(E 进编辑 / Esc 退编辑等编辑器快捷键),Esc 先退剪裁再关弹窗,Enter 确认
@@ -612,17 +640,21 @@
   $('dlg-src').addEventListener('click', () => { if (!cropMode) openLightbox('src'); });
   $('dlg-out').addEventListener('click', () => { if (dlgCtx && dlgCtx.outUrl) openLightbox('out'); });
 
-  /** 当前呈现的 blob:有标注→全分辨率合成 PNG;无标注→原始 blob(零回归) */
-  async function displayBlob() {
-    try {
-      const edited = await Edit.exportBlob();
-      if (edited) return { blob: edited, name: asPng(meta.name) };
-    } catch (e) { /* 合成失败退回原图 */ }
-    return { blob: currentBlob, name: meta.name };
+  /** 指定图的当前呈现:有标注→全分辨率合成 PNG;无标注→原始 blob(零回归) */
+  async function displayBlobFor(img) {
+    const t = img && Edit.targetOf(img);
+    const name = (t && t.name) || (meta && meta.name) || 'image.png';
+    if (t) {
+      try {
+        const edited = await Edit.exportBlob(img);
+        if (edited) return { blob: edited, name: img === imgEl ? asPng(name) : asPng(dotName(name, '-标注')) };
+      } catch (e) { /* 合成失败退回原图 */ }
+    }
+    return { blob: img ? blobOf.get(img) : null, name };
   }
 
   async function doDownload() {
-    const { blob, name } = await displayBlob();
+    const { blob, name } = await displayBlobFor(activeImg);
     if (!blob) return;
     openExport(blob, name);
   }
@@ -638,27 +670,34 @@
         out = await new Promise(res => c.toBlob(res, 'image/png'));
       }
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': out })]);
-      flash('已复制到剪贴板');
+      toast('已复制到剪贴板');
     } catch (e) {
-      flash('复制失败,请使用下载或在图片上右键复制');
+      toast('复制失败,请使用下载或在图片上右键复制', 'err');
     }
   }
   async function doCopy() {
-    const { blob } = await displayBlob();
+    const { blob } = await displayBlobFor(activeImg);
     if (blob) copyPng(blob);
   }
 
   $('btn-download').addEventListener('click', doDownload);
   $('btn-copy').addEventListener('click', doCopy);
   $('btn-edit').addEventListener('click', () => Edit.setMode('edit'));
-  // 编辑态工具栏里的 复制/下载 复用同一出口
+  // 编辑态工具栏里的 复制/下载 复用同一出口(作用于选中图,见 edit.js mainTarget)
   Edit._emit = (kind) => { if (kind === 'copy') doCopy(); else if (kind === 'download') doDownload(); };
 
-  function flash(text) {
-    const s = $('status');
-    s.textContent = text;
-    s.classList.remove('hidden');
-    setTimeout(() => s.classList.add('hidden'), 2500);
+  /** P012 操作提示:底部居中 toast,滑入后自动消失;kind='err' 为错误红 */
+  function toast(text, kind) {
+    const box = $('toasts');
+    const d = document.createElement('div');
+    d.className = 'toast' + (kind ? ' ' + kind : '');
+    d.textContent = text;
+    box.appendChild(d);
+    requestAnimationFrame(() => d.classList.add('show'));
+    setTimeout(() => {
+      d.classList.remove('show');
+      setTimeout(() => d.remove(), 300);
+    }, 2200);
   }
 
   init();
