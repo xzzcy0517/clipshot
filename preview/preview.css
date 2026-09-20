@@ -104,6 +104,16 @@ button:hover { filter: brightness(1.05); }
 }
 #dlmodal .dlg-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 #dlmodal .dlg-head strong { font-size: 15px; }
+#dlmodal .dlg-head-btns { display: inline-flex; gap: 6px; align-items: center; }
+/* 全屏态(v0.9.6):弹窗铺满视口,对比区吃满剩余高度,控件居中限宽 */
+#dlmodal .dlg.fs {
+  left: 0; top: 0; transform: none; width: 100vw; max-width: none; height: 100vh; max-height: none;
+  border: none; border-radius: 0; display: flex; flex-direction: column; overflow: hidden;
+}
+#dlmodal .dlg.fs .dlg-compare { flex: 1; min-height: 0; }
+#dlmodal .dlg.fs .dlg-compare figure { display: flex; flex-direction: column; min-height: 0; }
+#dlmodal .dlg.fs .pane { flex: 1; height: auto; min-height: 0; }
+#dlmodal .dlg.fs .dlg-controls, #dlmodal .dlg.fs .dlg-foot { max-width: 960px; width: 100%; margin-left: auto; margin-right: auto; }
 #dlg-close { border: none; background: transparent; font-size: 18px; padding: 0 8px; line-height: 1.4; opacity: .55; }
 #dlg-close:hover { opacity: 1; filter: none; }
 #dlmodal .dlg-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

@@ -309,6 +309,7 @@
   let encoding = false, requeue = false; // 编码互斥:连续拖动不并发重编码(性能)
   let cropMode = false;
   let cropDrag = null;
+  let dlgFs = false;   // 弹窗全屏态(v0.9.6),会话内记忆
   let lb = null;       // 灯箱状态 {which:'src'|'out', fit}
 
   function renameExt(name, mime) {
@@ -450,6 +451,14 @@
   $('dl-format').addEventListener('change', () => { dlOpts.format = $('dl-format').value; syncCtlLabels(); schedulePreview(); });
   $('dl-quality').addEventListener('input', () => { dlOpts.quality = +$('dl-quality').value; $('dl-quality-v').textContent = dlOpts.quality + '%'; schedulePreview(); });
   $('dl-scale').addEventListener('input', () => { dlOpts.scale = +$('dl-scale').value; syncCtlLabels(); schedulePreview(); });
+  /** 全屏切换:弹窗铺满视口,对比图更大;剪裁框随 pane 几何重定位 */
+  function setDlgFs(on) {
+    dlgFs = !!on;
+    $('dlg').classList.toggle('fs', dlgFs);
+    $('dlg-fs').textContent = dlgFs ? '退出全屏' : '⛶ 全屏';
+    renderCropBox();
+  }
+  $('dlg-fs').addEventListener('click', () => setDlgFs(!dlgFs));
   $('dlg-close').addEventListener('click', closeExport);
   $('dlg-cancel').addEventListener('click', closeExport);
   $('dlg-mask').addEventListener('click', closeExport);
@@ -460,10 +469,10 @@
     toast('已开始下载:' + ctx0.outName);
     closeExport();
   });
-  // 弹窗内按键不外泄(E 进编辑 / Esc 退编辑等编辑器快捷键),Esc 先退剪裁再关弹窗,Enter 确认
+  // 弹窗内按键不外泄(E 进编辑 / Esc 退编辑等编辑器快捷键),Esc 逐层退:剪裁 → 全屏 → 关闭,Enter 确认
   $('dlg').addEventListener('keydown', (e) => {
     e.stopPropagation();
-    if (e.key === 'Escape') { e.preventDefault(); if (cropMode) setCropMode(false); else closeExport(); }
+    if (e.key === 'Escape') { e.preventDefault(); if (cropMode) setCropMode(false); else if (dlgFs) setDlgFs(false); else closeExport(); }
     else if (e.key === 'Enter' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'BUTTON') {
       e.preventDefault();
       if (!$('dlg-go').disabled) $('dlg-go').click();
