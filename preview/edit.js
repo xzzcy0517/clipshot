@@ -87,6 +87,11 @@
     }
     return { x: 0, y: 0, w: 0, h: 0 };
   };
+  /** 矩形并集(导出区域计算:v0.10.2 修复标注画出图像边界后导出缺失) */
+  P.unionRect = function (a, b) {
+    const x0 = Math.min(a.x, b.x), y0 = Math.min(a.y, b.y);
+    return { x: x0, y: y0, w: Math.max(a.x + a.w, b.x + b.w) - x0, h: Math.max(a.y + a.h, b.y + b.h) - y0 };
+  };
   /**
    * P014 形状库(纯数据;绘制函数在下方 DOM 段 SHAPE_DRAW,图标与画布共用)。
    * line=true 用 x0/y0/x1/y1 几何(端点拖拽);否则用 x/y/bw/bh(8 把手)。
@@ -1316,30 +1321,46 @@
   }
 
   /* ---------------- 导出(所见即所得) ---------------- */
-  async function exportBlob(imgEl) {
+  /**
+   * 单图导出:画布 = 图像 ∪ 标注包围盒(v0.10.2:标注可画出图像边界,出界部分随导出保留)。
+   * 返回 {blob, x, y, w, h};x/y 为导出位图左上角在「图像原始像素」系中的坐标(可为负),
+   * 供 composeBoard 按偏移对齐摆放;无标注返回 null(调用方走原 blob,零回归)。
+   */
+  async function exportRegion(imgEl) {
     const t = imgEl ? targets.get(imgEl) : mainTarget();
-    if (!t || !t.bmp) return null;
+    if (!t || !t.bmp || t.isBoard) return null;
     if (!t.store.anns.length) return null;
+    let R = { x: 0, y: 0, w: t.natW, h: t.natH };
+    for (const a of t.store.anns) R = P.unionRect(R, P.annBBox(a));
+    const x0 = Math.floor(R.x), y0 = Math.floor(R.y);
+    R = { x: x0, y: y0, w: Math.ceil(R.x + R.w) - x0, h: Math.ceil(R.y + R.h) - y0 };
+    if (R.w > 32767 || R.h > 32767) throw new Error('canvas-overflow');
     const c = document.createElement('canvas');
-    c.width = t.natW; c.height = t.natH;
+    c.width = R.w; c.height = R.h;
     const cc = c.getContext('2d');
+    cc.translate(-R.x, -R.y);
     cc.drawImage(t.bmp, 0, 0);
-    const view = { rect: { left: 0, top: 0, width: t.natW }, natW: t.natW, natH: t.natH, bmp: t.bmp, s: 1, export: true };
+    const view = { rect: { left: 0, top: 0, width: R.w }, natW: R.w, natH: R.h, bmp: t.bmp, s: 1, export: true };
     for (const a of t.store.anns) { a._pal = null; drawAnn(cc, a, view); }
-    return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('合成失败'))), 'image/png'));
+    const blob = await new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('合成失败'))), 'image/png'));
+    return { blob, x: R.x, y: R.y, w: R.w, h: R.h };
+  }
+  /** 单图标注包围盒(图像原始像素系,可为负);无标注返回 null */
+  function annBBoxOf(imgEl) {
+    const t = targets.get(imgEl);
+    if (!t || t.isBoard || !t.store.anns.length) return null;
+    let R = null;
+    for (const a of t.store.anns) R = R ? P.unionRect(R, P.annBBox(a)) : P.annBBox(a);
+    return R;
   }
 
   /* -------- P014 画板标注层:坐标=画板布局 px;导出按 scale(dpr)重绘,与卡片合成同坐标系 -------- */
   function hasBoardAnns() { return !!(boardT && boardT.store.anns.length); }
   function boardAnnsBBox() {
     if (!hasBoardAnns()) return null;
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const a of boardT.store.anns) {
-      const bb = P.annBBox(a);
-      if (bb.x < x0) x0 = bb.x; if (bb.y < y0) y0 = bb.y;
-      if (bb.x + bb.w > x1) x1 = bb.x + bb.w; if (bb.y + bb.h > y1) y1 = bb.y + bb.h;
-    }
-    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+    let R = null;
+    for (const a of boardT.store.anns) R = R ? P.unionRect(R, P.annBBox(a)) : P.annBBox(a);
+    return R;
   }
   /** 把画板标注层画到导出画布:scale = 导出分辨率 / 画板布局 px(即 dpr) */
   function drawBoardLayer(c2d, scale) {
@@ -1353,7 +1374,7 @@
   }
 
   CS.Edit = {
-    mount, unmount, targetOf, exportBlob, setMode, setActive, get mode() { return mode; },
+    mount, unmount, targetOf, exportRegion, annBBoxOf, setMode, setActive, get mode() { return mode; },
     redraw: requestRedraw,
     hasBoardAnns, boardAnnsBBox, drawBoardLayer,
     modalOpen: null, // preview.js 赋值为导出弹窗状态查询,打开时屏蔽编辑器快捷键

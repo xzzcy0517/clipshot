@@ -224,8 +224,10 @@
       y += cardDispSize(c).h + 24;
     }
   }
-  /** 画板 bbox(布局 CSS px):卡片 ∪ P014 画板标注;原点可为负(标注画出左上界) */
+  /** 画板 bbox(布局 CSS px):卡片视觉范围 ∪ P014 画板标注;原点可为负(标注画出界)。
+   *  卡片视觉范围 = 图像 ∪ 其标注包围盒(v0.10.2:图片标注出界也随导出保留) */
   function boardBBox() {
+    const dpr = window.devicePixelRatio || 1;
     let x0 = null, y0 = null, x1 = 0, y1 = 0;
     const union = (x, y, w, h) => {
       if (x0 === null) { x0 = x; y0 = y; x1 = x + w; y1 = y + h; return; }
@@ -234,8 +236,16 @@
     };
     for (const c of cards) {
       if (!c.img.naturalWidth) continue;
-      const d = cardDispSize(c);
-      union(c.x, c.y, d.w, d.h);
+      const s = scales.get(c.img) || 1;
+      const ab = Edit.annBBoxOf && Edit.annBBoxOf(c.img);
+      if (ab) {
+        const vx0 = Math.min(0, ab.x), vy0 = Math.min(0, ab.y);
+        const vx1 = Math.max(c.img.naturalWidth, ab.x + ab.w), vy1 = Math.max(c.img.naturalHeight, ab.y + ab.h);
+        union(c.x + vx0 / dpr * s, c.y + vy0 / dpr * s, (vx1 - vx0) / dpr * s, (vy1 - vy0) / dpr * s);
+      } else {
+        const d = cardDispSize(c);
+        union(c.x, c.y, d.w, d.h);
+      }
     }
     const ab = Edit.boardAnnsBBox && Edit.boardAnnsBBox();
     if (ab) union(ab.x, ab.y, ab.w, ab.h);
@@ -348,12 +358,16 @@
     cx.translate(-Math.round(bb.x * dpr), -Math.round(bb.y * dpr)); // 标注可能画到负象限,平移对齐
     for (const card of cards) {
       if (!card.img.naturalWidth) continue;
-      let src = blobOf.get(card.img);
-      try { const edited = await Edit.exportBlob(card.img); if (edited) src = edited; } catch (e) { /* 标注合成失败用原图 */ }
+      let src = blobOf.get(card.img), ox = 0, oy = 0;
+      try {
+        const region = await Edit.exportRegion(card.img); // 含出界标注的扩展区域
+        if (region) { src = region.blob; ox = region.x; oy = region.y; }
+      } catch (e) { /* 标注合成失败用原图 */ }
       if (!src) continue;
       const bmp = await createImageBitmap(src);
       const s = scales.get(card.img) || 1;
-      cx.drawImage(bmp, Math.round(card.x * dpr), Math.round(card.y * dpr),
+      // 位图左上角(图像 px ox/oy 可为负)→ 布局 px:ox/dpr*s → 设备 px:×dpr 即 ox*s
+      cx.drawImage(bmp, Math.round(card.x * dpr + ox * s), Math.round(card.y * dpr + oy * s),
         Math.round(bmp.width * s), Math.round(bmp.height * s));
       bmp.close();
     }
@@ -944,8 +958,8 @@
     const name = (t && t.name) || (meta && meta.name) || 'image.png';
     if (t) {
       try {
-        const edited = await Edit.exportBlob(img);
-        if (edited) return { blob: edited, name: img === imgEl ? asPng(name) : asPng(dotName(name, '-标注')) };
+        const region = await Edit.exportRegion(img); // 含出界标注(画布=图像∪标注包围盒)
+        if (region) return { blob: region.blob, name: img === imgEl ? asPng(name) : asPng(dotName(name, '-标注')) };
       } catch (e) { /* 合成失败退回原图 */ }
     }
     return { blob: img ? blobOf.get(img) : null, name };

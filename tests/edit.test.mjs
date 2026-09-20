@@ -183,4 +183,19 @@ assert.ok(stB.stack[stB.stack.length - 1].seq > seqB, 'del 也带 seq');
 stB.undo();
 assert.deepEqual(stB.anns, [ob], 'del 撤销按原位恢复');
 
-console.log('✔ edit.test.mjs(坐标/几何/栈/选中交互/形状库/画板层)');
+/* ---------- v0.10.2 unionRect:导出画布=图像∪标注包围盒(出界保留) ---------- */
+assert.deepEqual(P.unionRect({ x: 0, y: 0, w: 10, h: 10 }, { x: 5, y: 5, w: 4, h: 4 }),
+  { x: 0, y: 0, w: 10, h: 10 }, '内含时并集不变');
+// 矩形标注左上出界:annBBox pad=2 → {x:-32,y:8,w:44,h:34};与图像 {0,0,100,80} 并集
+const U1 = P.unionRect({ x: 0, y: 0, w: 100, h: 80 },
+  P.annBBox({ tool: 'rect', x: -30, y: 10, bw: 40, bh: 30, w: 2 }));
+assert.deepEqual(U1, { x: -32, y: 0, w: 132, h: 80 }, '左出界并集向左扩');
+// 箭头右出界:并集向右扩,其余边不变
+const U2 = P.unionRect({ x: 0, y: 0, w: 100, h: 80 },
+  P.annBBox({ tool: 'arrow', x0: 50, y0: 40, x1: 160, y1: 40, w: 3 }));
+assert.ok(U2.x === 0 && U2.y === 0 && U2.h === 80 && U2.w > 160, '箭头右出界并集含头部余量: ' + JSON.stringify(U2));
+// 画板标注负象限:并集原点可为负
+const U3 = P.unionRect({ x: -50, y: -20, w: 30, h: 30 }, { x: 10, y: 0, w: 40, h: 60 });
+assert.deepEqual(U3, { x: -50, y: -20, w: 100, h: 80 });
+
+console.log('✔ edit.test.mjs(坐标/几何/栈/选中交互/形状库/画板层/导出并集)');
