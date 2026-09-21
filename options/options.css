@@ -5,11 +5,6 @@ body {
   font: 14px/1.7 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
   color: #1c2330;
 }
-@media (prefers-color-scheme: dark) {
-  body { color: #dde3ee; }
-  fieldset { border-color: #333a48; }
-  input, select, textarea, button { background: #232833; color: #dde3ee; border-color: #3a4150; }
-}
 h1 { font-size: 20px; }
 fieldset { border: 1px solid #d6dbe4; border-radius: 10px; margin: 0 0 18px; padding: 14px 16px; }
 legend { padding: 0 6px; font-weight: 600; }
@@ -26,4 +21,16 @@ button:disabled { opacity: .5; cursor: default; }
 textarea {
   width: 100%; font: 12px/1.5 ui-monospace, monospace; padding: 8px;
   border-radius: 8px; border: 1px solid #ccd2dd; resize: vertical;
+}
+
+/* 深色模式:必须放在所有浅色基础规则之后(同优先级后者生效),否则白底白字。
+   tests/css-dark.test.mjs 机械拦截该顺序错误。 */
+@media (prefers-color-scheme: dark) {
+  body { color: #dde3ee; }
+  fieldset { border-color: #333a48; }
+  legend { color: #dde3ee; }
+  input, select, textarea { background: #232833; color: #dde3ee; border-color: #3a4150; }
+  input[type="number"], select, textarea { border-color: #3a4150; }
+  button { background: #232833; color: #dde3ee; border-color: #3a4150; }
+  button:hover:not(:disabled) { border-color: #5b8def; }
 }
