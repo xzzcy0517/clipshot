@@ -5,14 +5,6 @@ body {
   font: 13px/1.6 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
   color: #1c2330; background: #f7f8fa;
 }
-@media (prefers-color-scheme: dark) {
-  body { color: #dde3ee; background: #171a21; }
-  fieldset { border-color: #333a48; }
-  .btns button { background: #232833; border-color: #3a4150; color: #dde3ee; }
-  .btns button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
-  .bar { background: #2a3040; }
-  select, .link { background: #232833; color: #dde3ee; border-color: #3a4150; }
-}
 h1 { font-size: 15px; margin: 0 0 10px; }
 .btns { display: flex; flex-direction: column; gap: 8px; }
 .btns button {
@@ -23,6 +15,7 @@ h1 { font-size: 15px; margin: 0 0 10px; }
 .btns button:hover:not([disabled]) { border-color: #2f6fe4; }
 .btns button[disabled] { opacity: .42; cursor: not-allowed; }
 .btns button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+.btns button.primary:hover:not([disabled]) { background: #2561d0; }
 .hint { margin-top: 10px; font-size: 12px; opacity: .75; }
 .progress { margin-top: 10px; }
 .progress.hidden { display: none; }
@@ -30,11 +23,17 @@ h1 { font-size: 15px; margin: 0 0 10px; }
 #barfill { height: 100%; width: 0; background: #2f6fe4; transition: width .3s; }
 #progresstext { margin-top: 6px; font-size: 12px; }
 .link { border: none; background: none; color: #2f6fe4; cursor: pointer; font-size: 12px; padding: 2px 0; }
+.link:hover { text-decoration: underline; }
 fieldset { margin-top: 12px; border: 1px solid #d6dbe4; border-radius: 8px; padding: 10px; }
 legend { font-size: 12px; padding: 0 4px; opacity: .8; }
 label { display: block; margin: 4px 0; }
 label.row { display: flex; align-items: center; gap: 6px; }
 select { padding: 3px 6px; border-radius: 6px; border: 1px solid #ccd2dd; }
+#btn-openimg {
+  width: 100%; padding: 7px 12px; border-radius: 8px; border: 1px solid #ccd2dd;
+  background: #fff; color: #1c2330; cursor: pointer; font-size: 13px;
+}
+#btn-openimg:hover { border-color: #2f6fe4; }
 .mini { margin-top: 8px; font-size: 11px; opacity: .7; }
 .notice {
   margin-top: 10px; padding: 8px 10px; border-radius: 8px; font-size: 12px;
@@ -42,3 +41,20 @@ select { padding: 3px 6px; border-radius: 6px; border: 1px solid #ccd2dd; }
 }
 .notice.hidden { display: none; }
 .foot-row { margin-top: 10px; text-align: center; }
+
+/* 深色模式:必须放在所有基础样式之后,否则同优先级覆写会被后面的浅色规则盖掉 */
+@media (prefers-color-scheme: dark) {
+  body { color: #dde3ee; background: #171a21; }
+  fieldset { border-color: #333a48; }
+  .btns button { background: #232833; border-color: #3a4150; color: #dde3ee; }
+  .btns button:hover:not([disabled]) { border-color: #5b8def; background: #28303e; }
+  .btns button.primary { background: #2f6fe4; border-color: #2f6fe4; color: #fff; }
+  .btns button.primary:hover:not([disabled]) { background: #4b85ee; }
+  .bar { background: #2a3040; }
+  #barfill { background: #5b8def; }
+  select { background: #232833; color: #dde3ee; border-color: #3a4150; }
+  .link { color: #7ba3f0; }
+  #btn-openimg { background: #232833; border-color: #3a4150; color: #dde3ee; }
+  #btn-openimg:hover { border-color: #5b8def; }
+  .notice { background: #3a3020; color: #e8c877; border-color: #6b5a2e; }
+}
