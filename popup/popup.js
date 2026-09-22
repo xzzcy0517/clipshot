@@ -28,6 +28,13 @@
     const isFile = /^file:/.test(url);
     setDisabled('btn-full', special,
       'Chrome 禁止扩展向浏览器内部页注入脚本,整页滚动截图不可用\n→ 请改用「可视区域截图」(任何页面可用)');
+    setDisabled('btn-full-manual', special,
+      'Chrome 禁止扩展向浏览器内部页注入脚本,整页滚动截图不可用\n→ 请改用「可视区域截图」(任何页面可用)');
+    if (!special) {
+      $('btn-full-manual').title = '虚拟滚动页(飞书/Notion 类超长文档)专用:\n'
+        + '① 先用鼠标把页面从头缓慢滚到底,滚动条不再变长即加载完成\n'
+        + '② 再点本按钮——跳过自动滚动,直接截取已加载的全部内容';
+    }
     setDisabled('btn-region', special,
       '框选需要在页面内绘制选区,浏览器内部页不支持注入\n→ 请改用「可视区域截图」');
     if (isFile) {
@@ -80,11 +87,15 @@
     window.close();
   });
 
-  for (const [id, mode] of [['btn-full', 'full'], ['btn-visible', 'visible'], ['btn-region', 'region']]) {
+  // btn-full-manual:手动预热模式(P015)——同一 full 管线,opts.prescrolled 跳过自动滚动
+  for (const [id, mode, opts] of [
+    ['btn-full', 'full'], ['btn-full-manual', 'full', { prescrolled: true }],
+    ['btn-visible', 'visible'], ['btn-region', 'region']
+  ]) {
     $(id).addEventListener('click', async () => {
       if (activeTabId == null) return notice('未找到当前标签页');
       showProgress('check', 0, '任务已提交…');
-      const r = await chrome.runtime.sendMessage({ type: CS.MSG.JOB_START, tabId: activeTabId, mode });
+      const r = await chrome.runtime.sendMessage({ type: CS.MSG.JOB_START, tabId: activeTabId, mode, opts });
       if (!r || !r.ok) hideProgress(noticeText(CS.errText((r && r.error) || CS.ERR.UNKNOWN)));
     });
   }

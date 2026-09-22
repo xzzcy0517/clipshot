@@ -271,23 +271,33 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       // 预热视口=拍摄视口后,懒加载触发、高度收敛、内容预渲染一次完成,步数还更少。
       const dpr = Math.max(1, Math.min(3, (cm && cm.dpr) || 1));
       const AREA_CAP = 60 * 1024 * 1024; // 单次仿真视口最大设备像素面积
-      const capW0 = Math.max(1, Math.round((cm && cm.vw) || 1));
-      const capH0 = Math.max(1, Math.round(
-        (cm && cm.scroller === 'internal' && cm.scrollerH > 0) ? cm.scrollerH : ((cm && cm.docH) || 1)));
       let preWarmed = false;
-      if (CS.geom.pickEmulationScale(capW0, capH0, dpr, AREA_CAP) === 0) {
-        const baseH = Math.max(500, Math.min(s.chunkHeight, Math.floor(s.maxPartDeviceH / dpr)));
-        try {
-          await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
-            width: capW0, height: baseH, deviceScaleFactor: dpr, mobile: false
-          }, 5000);
-          preWarmed = true;
-        } catch (e) { /* 预热失败不阻断,runSegmented 会自做暖机遍历 */ }
-      }
+      let scrollInfo;
+      if (s.prescrolled) {
+        // P015 手动预热模式:用户已自行把虚拟滚动内容全部滚出(高度在进入捕获前
+        // 真收敛),加载与拍摄解耦——跳过预热仿真与自动滚动;其后的收敛门控、
+        // 三段捕获路径与 P008 段间锚点全部保留,作「没滚完」情形的保险丝
+        phase(job, 'scroll', 15);
+        toast(job, '手动预热模式:跳过自动滚动');
+        scrollInfo = { fullyScrolled: true, infinite: false, stoppedBy: 'manual', scroller: 'document' };
+      } else {
+        const capW0 = Math.max(1, Math.round((cm && cm.vw) || 1));
+        const capH0 = Math.max(1, Math.round(
+          (cm && cm.scroller === 'internal' && cm.scrollerH > 0) ? cm.scrollerH : ((cm && cm.docH) || 1)));
+        if (CS.geom.pickEmulationScale(capW0, capH0, dpr, AREA_CAP) === 0) {
+          const baseH = Math.max(500, Math.min(s.chunkHeight, Math.floor(s.maxPartDeviceH / dpr)));
+          try {
+            await CS.cdp.call(job.tabId, 'Emulation.setDeviceMetricsOverride', {
+              width: capW0, height: baseH, deviceScaleFactor: dpr, mobile: false
+            }, 5000);
+            preWarmed = true;
+          } catch (e) { /* 预热失败不阻断,runSegmented 会自做暖机遍历 */ }
+        }
 
-      phase(job, 'scroll', 15);
-      abortCheck(job);
-      const scrollInfo = await runAutoScroll(job, s);
+        phase(job, 'scroll', 15);
+        abortCheck(job);
+        scrollInfo = await runAutoScroll(job, s);
+      }
 
       // P008 方案一:高度收敛门控。飞书类虚拟列表的总高在滚动结束后仍会随
       // 「估算块高 → 实测块高」替换而继续增长(用户实测:滚动中进度条越滚越长);
@@ -314,6 +324,8 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       // 内部滚动容器页 document 高度只有约一屏,真实高度在容器 scrollHeight 里)
       const m2 = await sendToTab(job.tabId, { type: MSG.METRICS }, 4000).catch(() => null);
       const isInternal = !!(m2 && m2.scroller === 'internal' && m2.scrollerH > 0);
+      // P015:记录捕获前内容高,拍完对账(见 deliver 前)——期间仍在长说明加载未竟
+      const hBefore = (s.prescrolled && m2) ? (isInternal ? m2.scrollerH : m2.docH) : null;
       // 仿真宽度用 innerWidth:与当前布局宽度一致,避免滚动条消失/出现引发
       // 文本重排——重排正是分段拼接缝错位的根源之一
       const capW = Math.max(1, Math.round((m2 && m2.vw) || css.cssW));
@@ -325,8 +337,13 @@ globalThis.ClipShot = globalThis.ClipShot || {};
 
       // ── P003 治理:注记降噪(过程不逐条喊,最终一条路径说明)+ 三层上限
       const notes = [];
+      if (s.prescrolled) notes.push('手动预热模式:已跳过自动滚动,仅包含已加载的内容');
       if (scrollInfo.infinite) notes.push('检测到无限滚动,仅包含已加载部分');
-      if (!heightConverged) notes.push('页面高度未完全收敛,如中段有重复请重试一次');
+      if (!heightConverged) {
+        notes.push(s.prescrolled
+          ? '页面高度仍在增长:请先从头缓慢滚动至文档最底部(滚动条不再变长)再点开始,否则中段可能重复'
+          : '页面高度未完全收敛,如中段有重复请重试一次');
+      }
       if (isInternal) notes.push('检测到内部滚动容器(飞书/Notion 类文档),已按容器高度捕获');
       if (scrollInfo.stoppedBy === 'none') notes.push('未检测到可滚动内容,结果可能不完整');
       // ① 总长闸门:截断取前段并明示,绝不无限截碎图串
@@ -428,6 +445,15 @@ globalThis.ClipShot = globalThis.ClipShot || {};
         pathNote = `页面超出浏览器单张捕获上限,已分 ${segments.length} 段拍摄;预览与下载为合成后的单张长图`;
       }
       if (pathNote) notes.unshift(pathNote);
+
+      // P015 高度对账:捕获窗口内内容仍在长 → 中段重复高危,给可见信号
+      if (hBefore > 0) {
+        const m3 = await sendToTab(job.tabId, { type: MSG.METRICS }, 4000).catch(() => null);
+        const hAfter = m3 ? (isInternal ? m3.scrollerH : m3.docH) : 0;
+        if (hAfter > hBefore + 8) {
+          notes.push(`捕获期间页面仍在增长(${Math.round(hBefore)}→${Math.round(hAfter)}px),中段可能有重复,请缓慢滚到底后重截`);
+        }
+      }
 
       await deliver(job, { mime: 'image/' + s.format, notes, segments });
     } finally {
