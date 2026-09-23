@@ -116,9 +116,41 @@
     return { fixedCount: fixed, stickyCount: sticky };
   }
 
-  function hideFixed() {
+  /**
+   * 内部滚动容器页(飞书类)的页头/侧栏:普通流内元素(非 fixed/sticky),
+   * scanAndHide 抓不到;但整页捕获的目标是容器内容——页头会在每个分段顶部
+   * 重复出现,还占掉一截视口让段缝错位(用户实测:手动删掉页头后不再重复)。
+   * 沿容器祖先链向上,隐藏每一层「不含容器」的兄弟子树。
+   * 仅整页捕获可调(fullPage):display:none 会回流,元素/框选已测得的 rect 会失效。
+   */
+  function hideOutOfScrollerChrome() {
+    const sc = findScroller();
+    if (sc.kind !== 'internal') return 0;
+    let n = 0;
+    for (let node = sc.el; node && node.parentElement; node = node.parentElement) {
+      const parent = node.parentElement;
+      if (parent === document.documentElement) break; // html 的子节点是 head/body,body 必在链上
+      for (const child of parent.children) {
+        if (child === node || hiddenSeen.has(child)) continue;
+        try { if (getComputedStyle(child).display === 'none') continue; } catch (e) { continue; }
+        hiddenList = hiddenList || [];
+        hiddenList.push({
+          el: child, prop: 'display',
+          prev: child.style.getPropertyValue('display'),
+          prevPri: child.style.getPropertyPriority('display')
+        });
+        child.style.setProperty('display', 'none', 'important');
+        hiddenSeen.add(child);
+        n++;
+      }
+    }
+    return n;
+  }
+
+  function hideFixed(fullPage) {
     const r = scanAndHide();
-    return { ok: true, fixedCount: r.fixedCount, stickyCount: r.stickyCount };
+    const chromeCount = fullPage ? hideOutOfScrollerChrome() : 0;
+    return { ok: true, fixedCount: r.fixedCount, stickyCount: r.stickyCount, chromeCount };
   }
 
   function restoreFixed() {
@@ -466,7 +498,7 @@
       case MSG.RENDER_STABLE: return renderStable(m.timeoutMs);
       case MSG.ANCHOR_MARK: return anchorMark();
       case MSG.ANCHOR_FIND: return anchorFind(m.id);
-      case MSG.HIDE_FIXED: return hideFixed();
+      case MSG.HIDE_FIXED: return hideFixed(!!m.fullPage);
       case MSG.RESTORE_FIXED: return restoreFixed();
       case MSG.PICK_GET: return pickGet(m.maxAgeMs);
       case MSG.MARQUEE_BEGIN: return marqueeBegin();

@@ -262,7 +262,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
       const s = job.settings;
       if (s.hideFixed) {
         phase(job, 'hideFixed', 12);
-        await hideFixedRound(job);
+        await hideFixedRound(job, true); // 整页捕获:顺带隐藏滚动容器外的页头/侧栏(P016)
       }
 
       // v0.4.5:预判是否会走分段——会,则把自动滚动放在「拍摄视口」下预热。
@@ -308,9 +308,9 @@ globalThis.ClipShot = globalThis.ClipShot || {};
 
       phase(job, 'backToTop', 55);
       if (s.hideFixed) {
-        // 第二轮:收编滚动过程中新出现的 fixed/sticky
+        // 第二轮:收编滚动过程中新出现的 fixed/sticky( chrome 隐藏幂等,随轮复检)
         phase(job, 'hideFixed', 56);
-        await hideFixedRound(job);
+        await hideFixedRound(job, true);
       }
       await CS.util.sleep(150); // 等一次重绘稳定
 
@@ -345,6 +345,7 @@ globalThis.ClipShot = globalThis.ClipShot || {};
           : '页面高度未完全收敛,如中段有重复请重试一次');
       }
       if (isInternal) notes.push('检测到内部滚动容器(飞书/Notion 类文档),已按容器高度捕获');
+      if (job.chromeHidden) notes.push(`已隐藏滚动容器外的页面元素 ${job.chromeHidden} 个(页头/侧栏等)`);
       if (scrollInfo.stoppedBy === 'none') notes.push('未检测到可滚动内容,结果可能不完整');
       // ① 总长闸门:截断取前段并明示,绝不无限截碎图串
       const totalCap = CS.geom.clampTotal(capH, s.maxTotalCssH);
@@ -467,10 +468,13 @@ globalThis.ClipShot = globalThis.ClipShot || {};
     }
   }
 
-  async function hideFixedRound(job) {
+  async function hideFixedRound(job, fullPage) {
     try {
-      const r = await sendToTab(job.tabId, { type: MSG.HIDE_FIXED }, 8000);
-      if (r && r.ok) job.hideFixedApplied = true;
+      const r = await sendToTab(job.tabId, { type: MSG.HIDE_FIXED, fullPage: !!fullPage }, 8000);
+      if (r && r.ok) {
+        job.hideFixedApplied = true;
+        if (r.chromeCount) job.chromeHidden = r.chromeCount;
+      }
     } catch (e) { /* 隐藏失败不阻断截图,继续 */ }
   }
 
@@ -575,10 +579,11 @@ globalThis.ClipShot = globalThis.ClipShot || {};
    * - 每段截图前等渲染稳定(飞书文档类虚拟列表渲染新窗口需要时间)。
    */
   async function runSegmented(job, capW, limitH, dpr, s, preWarmed) {
-    // 分段模式强制隐藏固定元素,否则每段重复绘制 fixed/sticky
+    // 分段模式强制隐藏固定元素,否则每段重复绘制 fixed/sticky;
+    // 容器外页头同理(每段顶部都带上一条 → 段间重复,P016),故同样强制 fullPage
     if (!job.hideFixedApplied) {
       phase(job, 'hideFixed', 65);
-      await hideFixedRound(job);
+      await hideFixedRound(job, true);
     }
     phase(job, 'stitch', 70);
     const segments = [];
